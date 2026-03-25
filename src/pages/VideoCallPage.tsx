@@ -78,11 +78,12 @@ export default function VideoCallPage() {
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
   const remoteImgRef = useRef<HTMLImageElement>(null)  // Direct ref — no React state per frame!
   const audioRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioChunksRef = useRef<Blob[]>([])
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const { 
     isVideoOn, 
     isAudioOn, 
+    localStream, // 👈 Added this to fix the undefined error
     toggleVideo: rtcToggleVideo, 
     toggleAudio: rtcToggleAudio, 
     sendMessage,
@@ -158,6 +159,7 @@ export default function VideoCallPage() {
     };
 
     const handleRemoteAudioFrame = ({ frame }: { frame: string }) => {
+      if (!frame || typeof frame !== 'string') return;
       // Decode base64 to blob and play
       const byteCharacters = atob(frame);
       const byteNumbers = new Array(byteCharacters.length);
