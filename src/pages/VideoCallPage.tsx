@@ -73,6 +73,8 @@ export default function VideoCallPage() {
 
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
+  const remoteImgRef = useRef<HTMLImageElement>(null)   // For socket.io video relay
+  const videoFrameInterval = useRef<ReturnType<typeof setInterval> | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const { 
@@ -111,7 +113,7 @@ export default function VideoCallPage() {
     };
   }, []); // ← empty deps: runs ONCE on mount
 
-  // Separate effect for listening to match + chat events
+  // Separate effect for listening to match + chat + video events
   useEffect(() => {
     const socket = socketService.connect();
 
@@ -122,6 +124,26 @@ export default function VideoCallPage() {
       setIsMatching(false);
       startCall(roomId, isOfferer);
       recordConnection(partner.id).catch(err => console.error('Failed to record connection:', err));
+
+      // 📡 Start socket.io video frame streaming after match
+      const startVideoStream = () => {
+        if (videoFrameInterval.current) clearInterval(videoFrameInterval.current);
+        const canvas = document.createElement('canvas');
+        canvas.width = 320;
+        canvas.height = 240;
+        const ctx = canvas.getContext('2d');
+        videoFrameInterval.current = setInterval(() => {
+          if (!localVideoRef.current || !ctx || !localVideoRef.current.readyState) return;
+          ctx.save();
+          ctx.scale(-1, 1);
+          ctx.drawImage(localVideoRef.current, -320, 0, 320, 240);
+          ctx.restore();
+          const frame = canvas.toDataURL('image/jpeg', 0.6);
+          socketService.emit('video-frame', { roomId, frame });
+        }, 100); // 10fps
+      };
+      // Slight delay to let media initialize
+      setTimeout(startVideoStream, 1500);
     };
 
     const handleCallEnded = () => {
@@ -129,6 +151,7 @@ export default function VideoCallPage() {
       setRoomId(null);
       setMessages([]);
       setIsMatching(false);
+      if (videoFrameInterval.current) clearInterval(videoFrameInterval.current);
     };
 
     // ✅ Receive chat messages via socket.io (guaranteed delivery regardless of WebRTC state)
@@ -136,16 +159,26 @@ export default function VideoCallPage() {
       setMessages((prev) => [...prev, { text: message, sender: 'Other', timestamp: Date.now() }]);
     };
 
+    // 🎥 Receive remote video frames via socket.io
+    const handleRemoteVideoFrame = ({ frame }: { frame: string }) => {
+      if (remoteImgRef.current) {
+        remoteImgRef.current.src = frame;
+      }
+    };
+
     socket.on('match-found', handleMatchFound);
     socket.on('call-ended', handleCallEnded);
     socket.on('partner-disconnected', handleCallEnded);
     socket.on('chat-message', handleChatMessage);
+    socket.on('remote-video-frame', handleRemoteVideoFrame);
 
     return () => {
       socket.off('match-found', handleMatchFound);
       socket.off('call-ended', handleCallEnded);
       socket.off('partner-disconnected', handleCallEnded);
       socket.off('chat-message', handleChatMessage);
+      socket.off('remote-video-frame', handleRemoteVideoFrame);
+      if (videoFrameInterval.current) clearInterval(videoFrameInterval.current);
     };
   }, [startCall]);
 
@@ -430,21 +463,34 @@ export default function VideoCallPage() {
 
           {/* Video Area — fills remaining height */}
           <div className="flex-1 relative bg-black overflow-hidden">
-            {/* Remote Video (full screen) */}
+            {/* Remote Video — socket.io frame relay (guaranteed on any network) */}
+            <img
+              ref={remoteImgRef}
+              alt="Remote video"
+              className="w-full h-full object-cover"
+              style={{ display: 'none' }}
+              onLoad={() => {
+                if (remoteImgRef.current) remoteImgRef.current.style.display = 'block';
+                // Hide placeholder when first frame arrives
+                const placeholder = document.getElementById('remote-placeholder');
+                if (placeholder) placeholder.style.display = 'none';
+              }}
+            />
+
+            {/* WebRTC video (hidden — audio only, P2P when available) */}
             <video
               ref={remoteVideoRef}
               autoPlay
               playsInline
-              className="w-full h-full object-cover"
+              className="absolute w-0 h-0 opacity-0"
             />
 
-            {/* Waiting placeholder when no remote stream */}
-            {!remoteStream && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 text-center gap-4 p-6">
-                <div className="w-24 h-24 bg-gray-800 rounded-full flex items-center justify-center border border-white/10 overflow-hidden">
-                  <img
-                    src={`/AvatarImages/PandaAvatar.png`}
-                    alt="Partner"
+            {/* Waiting placeholder */}
+            <div id="remote-placeholder" className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 text-center gap-4 p-6">
+              <div className="w-24 h-24 bg-gray-800 rounded-full flex items-center justify-center border border-white/10 overflow-hidden">
+                <img
+                  src={`/AvatarImages/PandaAvatar.png`}
+                  alt="Partner"
                     className="w-full h-full object-cover grayscale opacity-50"
                   />
                 </div>
@@ -456,9 +502,8 @@ export default function VideoCallPage() {
                   <div className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" />
                   <div className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '0.15s' }} />
                   <div className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '0.3s' }} />
-                </div>
               </div>
-            )}
+            </div>
 
             {/* Local Video PiP — top right, smaller on mobile */}
             <div className="absolute top-3 right-3 w-28 h-20 sm:w-40 sm:h-28 md:w-52 md:h-36 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 z-20">

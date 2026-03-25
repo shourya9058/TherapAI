@@ -78,13 +78,17 @@ export const handleVideoCallSocket = (io) => {
 
     // WebRTC Signaling Relay
     socket.on('signal', ({ roomId, signal }) => {
-      // Relay signal (Offer/Answer/ICE) to the other person in the room
       socket.to(roomId).emit('signal', { signal });
     });
 
     // Chat Relay
     socket.on('chat-message', ({ roomId, message }) => {
       socket.to(roomId).emit('chat-message', message);
+    });
+
+    // Video Frame Relay (socket.io video streaming fallback)
+    socket.on('video-frame', ({ roomId, frame }) => {
+      socket.to(roomId).emit('remote-video-frame', { frame });
     });
 
     // End call
