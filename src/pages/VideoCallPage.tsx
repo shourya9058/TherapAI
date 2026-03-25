@@ -101,36 +101,46 @@ export default function VideoCallPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-  // Initialize socket and matching listeners
+  // Initialize socket once on mount only
+  useEffect(() => {
+    const socket = socketService.connect();
+    console.log('Socket connected:', socket.id);
+
+    return () => {
+      // Only truly disconnect when the page unmounts
+      socketService.disconnect();
+    };
+  }, []); // ← empty deps: runs ONCE on mount
+
+  // Separate effect for listening to match events — no disconnect here
   useEffect(() => {
     const socket = socketService.connect();
 
-    socket.on('match-found', ({ roomId, partner, isOfferer }) => {
-      console.log('🤝 Partner found!', partner.username);
+    const handleMatchFound = ({ roomId, partner, isOfferer }: { roomId: string; partner: { id: string; username: string; avatar: string }; isOfferer: boolean }) => {
+      console.log('🤝 Partner found!', partner.username, 'room:', roomId);
       setMatchedUser(partner.username);
       setRoomId(roomId);
       setIsMatching(false);
-      
       startCall(roomId, isOfferer);
       recordConnection(partner.id).catch(err => console.error('Failed to record connection:', err));
-    });
+    };
 
-    socket.on('call-ended', () => {
+    const handleCallEnded = () => {
       setMatchedUser(null);
       setRoomId(null);
       setMessages([]);
       setIsMatching(false);
-    });
+    };
 
-    socket.on('partner-disconnected', () => {
-      setMatchedUser(null);
-      setRoomId(null);
-      setMessages([]);
-      setIsMatching(false);
-    });
+    socket.on('match-found', handleMatchFound);
+    socket.on('call-ended', handleCallEnded);
+    socket.on('partner-disconnected', handleCallEnded);
 
     return () => {
-      socketService.disconnect();
+      // Only remove the listeners, NOT disconnect the socket
+      socket.off('match-found', handleMatchFound);
+      socket.off('call-ended', handleCallEnded);
+      socket.off('partner-disconnected', handleCallEnded);
     };
   }, [startCall]);
 
