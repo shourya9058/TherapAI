@@ -122,32 +122,7 @@ export default function VideoCallPage() {
       setIsMatching(false);
       startCall(roomId, isOfferer);
       recordConnection(partner.id).catch(err => console.error('Failed to record connection:', err));
-
-      // 📡 Start socket.io video frame streaming after match
-      const startVideoStream = () => {
-        if (videoFrameInterval.current) clearInterval(videoFrameInterval.current);
-        const canvas = document.createElement('canvas');
-        canvas.width = 320;
-        canvas.height = 240;
-        const ctx = canvas.getContext('2d');
-        videoFrameInterval.current = setInterval(() => {
-          const video = localVideoRef.current;
-          // readyState >= 2 means HAVE_CURRENT_DATA — safe to draw
-          if (!video || !ctx || video.readyState < 2 || video.videoWidth === 0) return;
-          try {
-            ctx.save();
-            ctx.scale(-1, 1);
-            ctx.drawImage(video, -320, 0, 320, 240);
-            ctx.restore();
-            const frame = canvas.toDataURL('image/jpeg', 0.6);
-            socketService.emit('video-frame', { roomId, frame });
-          } catch (e) {
-            // Ignore draw errors (video not ready)
-          }
-        }, 100); // 10fps
-      };
-      // Delay to ensure local video has started playing on mobile
-      setTimeout(startVideoStream, 2000);
+      // ✅ Video capture now handled separately in the roomId-keyed useEffect below
     };
 
     const handleCallEnded = () => {
@@ -187,9 +162,49 @@ export default function VideoCallPage() {
       socket.off('partner-disconnected', handleCallEnded);
       socket.off('chat-message', handleChatMessage);
       socket.off('remote-video-frame', handleRemoteVideoFrame);
-      if (videoFrameInterval.current) clearInterval(videoFrameInterval.current);
+      // ⚠️ NOT clearing videoFrameInterval here — that's handled by the roomId effect
     };
   }, [startCall]);
+
+  // 🎥 STABLE video capture effect — keyed ONLY on roomId
+  // This never gets cleared by startCall re-creation
+  useEffect(() => {
+    if (!roomId) return; // No call active
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 320;
+    canvas.height = 240;
+    const ctx = canvas.getContext('2d');
+
+    let interval: ReturnType<typeof setInterval>;
+
+    // Wait for local video to be ready before starting
+    const startCapture = () => {
+      interval = setInterval(() => {
+        const video = localVideoRef.current;
+        if (!video || !ctx || video.readyState < 2 || video.videoWidth === 0) return;
+        try {
+          ctx.save();
+          ctx.scale(-1, 1);
+          ctx.drawImage(video, -320, 0, 320, 240);
+          ctx.restore();
+          const frame = canvas.toDataURL('image/jpeg', 0.6);
+          socketService.emit('video-frame', { roomId, frame });
+        } catch (_) {
+          // Video not ready yet, skip frame
+        }
+      }, 100); // 10fps
+    };
+
+    // 2s delay on mobile for camera init, then capture runs until roomId changes
+    const timer = setTimeout(startCapture, 2000);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+      console.log('🛑 Video capture stopped (roomId changed)');
+    };
+  }, [roomId]); // ⬅️ Only re-runs when room changes, NOT on every render
 
   // Also reset remoteVideoStarted when call ends
   useEffect(() => {
