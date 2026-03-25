@@ -1,0 +1,97 @@
+// Using the latest Gemini API approach with fetch
+const API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+const MODEL_NAME = 'gemini-2.5-flash';
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent`;
+
+const systemPrompt = `You are Lucille, a compassionate and professional AI mental health assistant. Your role is to provide empathetic, supportive, and professional guidance to users seeking mental health support.
+
+Guidelines:
+1. Respond with empathy and understanding
+2. Be professional but warm and approachable
+3. Support multiple languages based on user's input language
+4. Provide evidence-based mental health information
+5. Encourage professional help when needed
+6. Maintain appropriate boundaries
+7. Be non-judgmental and inclusive
+8. Use simple, clear language
+9. Keep responses concise but thorough
+10. Always prioritize user safety and well-being
+
+If a user is in crisis or needs immediate help, provide appropriate resources and encourage them to contact local emergency services or a mental health professional.`;
+
+function formatMessages(messages: Array<{role: 'user' | 'assistant', content: string}>) {
+  return messages.map(msg => ({
+    role: msg.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: msg.content }],
+  }));
+}
+
+export async function generateResponse(messages: Array<{role: 'user' | 'assistant', content: string}>) {
+  try {
+    const history = [
+      {
+        role: 'user' as const,
+        parts: [{ text: systemPrompt }],
+      },
+      {
+        role: 'model' as const,
+        parts: [{ text: "I understand. I'm Lucille, your compassionate AI mental health assistant. I'm here to listen and support you. How can I help you today?" }],
+      },
+      ...formatMessages(messages.slice(0, -1))
+    ];
+
+    const userMessage = messages[messages.length - 1].content;
+    
+    const response = await fetch(`${API_URL}?key=${API_KEY}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [
+          ...history,
+          {
+            role: 'user',
+            parts: [{ text: userMessage }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          topP: 0.95,
+          topK: 40,
+          maxOutputTokens: 1000,
+        },
+        safetySettings: [
+          {
+            category: 'HARM_CATEGORY_HARASSMENT',
+            threshold: 'BLOCK_MEDIUM_AND_ABOVE',
+          },
+          {
+            category: 'HARM_CATEGORY_HATE_SPEECH',
+            threshold: 'BLOCK_MEDIUM_AND_ABOVE',
+          },
+          {
+            category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+            threshold: 'BLOCK_MEDIUM_AND_ABOVE',
+          },
+          {
+            category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+            threshold: 'BLOCK_MEDIUM_AND_ABOVE',
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.error('API Error:', error);
+      throw new Error(error.error?.message || 'Failed to generate response');
+    }
+
+    const data = await response.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response. Please try again.";
+  } catch (error) {
+    console.error('Error in generateResponse:', error);
+    return "I'm having some trouble connecting to my servers. Please try again in a moment.";
+  }
+}
