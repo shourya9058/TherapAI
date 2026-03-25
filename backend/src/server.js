@@ -144,6 +144,10 @@ app.get('/health', (req, res) => {
 const distPath = path.join(__dirname, '../../dist');
 app.use(express.static(distPath));
 
+// Serve additional asset folders from root
+app.use('/AvatarImages', express.static(path.join(__dirname, '../../AvatarImages')));
+app.use('/public', express.static(path.join(__dirname, '../../public')));
+
 // API Routes
 console.log('📡 Registering API routes...');
 app.use('/api/auth', authRoutes);
