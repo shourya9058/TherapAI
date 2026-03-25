@@ -390,185 +390,178 @@ export default function VideoCallPage() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="flex h-screen bg-gray-900 overflow-hidden"
+          className="flex flex-col h-screen bg-gray-900 overflow-hidden relative"
         >
-          {/* Left side - Video area */}
-          <div className="flex-1 flex flex-col bg-gray-900 relative">
-            {/* Header with call info and timer */}
-            <div className="absolute top-0 inset-x-0 z-30 px-6 py-4 flex items-center justify-between bg-gradient-to-b from-black/60 to-transparent">
-              <div className="flex items-center gap-3">
-                <button onClick={goBack} className="text-white hover:text-white/80 transition-colors">
-                  <ArrowLeft className="w-5 h-5" />
-                </button>
-                <div>
-                  <h2 className="text-white font-semibold">{matchedUser}'s Video Consultation</h2>
-                  <p className="text-xs text-white/60">
-                    Live Session • Professional Support
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-full backdrop-blur-md border border-white/10">
-                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                  <span className="text-white text-xs font-mono">16:00</span>
-                </div>
-                <button className="text-white/80 hover:text-white transition-colors">
-                  <MoreVertical className="w-5 h-5" />
-                </button>
+          {/* Header */}
+          <div className="z-30 px-4 py-3 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <button onClick={goBack} className="text-white hover:text-white/80 transition-colors">
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div>
+                <h2 className="text-white font-semibold text-sm sm:text-base">{matchedUser}'s Consultation</h2>
+                <p className="text-xs text-white/60">Live Session • Anonymous</p>
               </div>
             </div>
-
-            {/* Main Video View */}
-            <div className="flex-1 relative bg-gray-800 overflow-hidden">
-              <video 
-                ref={remoteVideoRef} 
-                autoPlay 
-                playsInline 
-                className="w-full h-full object-cover" 
-              />
-              
-              {!remoteStream && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 text-center gap-4 p-6">
-                  <div className="w-32 h-32 bg-gray-800 rounded-full flex items-center justify-center border border-white/5 overflow-hidden">
-                    <img 
-                      src={getUserAvatar(user?.avatar)} 
-                      alt="Partner" 
-                      className="w-full h-full object-cover grayscale opacity-50"
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.src = '/AvatarImages/PandaAvatar.png';
-                      }}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-lg text-white font-medium">Waiting for {matchedUser}...</p>
-                    <p className="text-sm text-gray-500">Establishing a secure peer-to-peer connection</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Picture-in-picture (local video) - bottom right */}
-              <div className="absolute bottom-24 right-6 w-56 h-40 rounded-3xl overflow-hidden shadow-2xl border-4 border-white/10 group backdrop-blur-md">
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-cover scale-x-[-1]"
-                />
-                {!isVideoOn && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-                    <VideoOff className="w-8 h-8 text-white/20" />
-                  </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-full border border-white/10">
+                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                <span className="text-white text-xs font-mono">LIVE</span>
+              </div>
+              <button
+                onClick={() => setShowChat(!showChat)}
+                className={`p-2 rounded-full transition-all ${showChat ? 'bg-purple-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
+              >
+                <MessageSquare className="w-5 h-5" />
+                {messages.length > 0 && !showChat && (
+                  <span className="absolute top-1 right-1 bg-red-500 w-2 h-2 rounded-full" />
                 )}
-                <div className="absolute bottom-3 left-3 bg-black/50 backdrop-blur-md text-white text-[10px] px-2 py-0.5 rounded-full border border-white/10 uppercase tracking-widest font-bold">
-                  You
-                </div>
-              </div>
-
-              {/* Partner Name Tag */}
-              <div className="absolute bottom-24 left-6 bg-black/40 backdrop-blur-md text-white px-4 py-2 rounded-2xl border border-white/10 flex items-center gap-2">
-                <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-                <span className="text-sm font-medium">{matchedUser}</span>
-              </div>
-            </div>
-
-            {/* Professional Control Hub */}
-            <div className="absolute bottom-6 inset-x-0 z-40 flex items-center justify-center decoration-transparent">
-              <div className="bg-black/40 backdrop-blur-2xl px-6 py-4 rounded-[40px] border border-white/10 shadow-2xl flex items-center gap-4">
-                <button
-                  onClick={toggleAudio}
-                  className={`p-4 rounded-full transition-all duration-300 ${
-                    isAudioOn ? "bg-white/10 text-white hover:bg-white/20" : "bg-red-500 text-white hover:bg-red-600 shadow-lg shadow-red-500/30"
-                  }`}
-                >
-                  {isAudioOn ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
-                </button>
-
-                <button
-                  onClick={toggleVideo}
-                  className={`p-4 rounded-full transition-all duration-300 ${
-                    isVideoOn ? "bg-white/10 text-white hover:bg-white/20" : "bg-red-500 text-white hover:bg-red-600 shadow-lg shadow-red-500/30"
-                  }`}
-                >
-                  {isVideoOn ? <Video className="w-6 h-6" /> : <VideoOff className="w-6 h-6" />}
-                </button>
-
-                <div className="w-px h-10 bg-white/10 mx-2" />
-
-                <button
-                  onClick={() => setShowChat(!showChat)}
-                  className={`p-4 rounded-full transition-all duration-300 relative ${
-                    showChat ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30" : "bg-white/10 text-white hover:bg-white/20"
-                  }`}
-                >
-                  <MessageSquare className="w-6 h-6" />
-                  {messages.length > 0 && !showChat && (
-                    <span className="absolute top-2 right-2 bg-red-500 w-3 h-3 rounded-full border-2 border-black/40" />
-                  )}
-                </button>
-
-                <button 
-                  onClick={skipToNext}
-                  className="p-4 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all duration-300"
-                >
-                  <SkipForward className="w-6 h-6" />
-                </button>
-
-                <button
-                  onClick={goBack}
-                  disabled={isLoading}
-                  className="p-4 rounded-full bg-red-600 text-white hover:scale-110 active:scale-95 transition-all duration-300 shadow-xl shadow-red-600/40 disabled:opacity-50"
-                >
-                  <PhoneOff className="w-7 h-7" />
-                </button>
-              </div>
+              </button>
             </div>
           </div>
 
-          {/* Chat Side Panel */}
-          {showChat && (
-            <motion.div 
-              initial={{ x: 400 }}
-              animate={{ x: 0 }}
-              exit={{ x: 400 }}
-              className="w-[400px] bg-white border-l border-gray-100 flex flex-col shadow-2xl"
+          {/* Video Area — fills remaining height */}
+          <div className="flex-1 relative bg-black overflow-hidden">
+            {/* Remote Video (full screen) */}
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              className="w-full h-full object-cover"
+            />
+
+            {/* Waiting placeholder when no remote stream */}
+            {!remoteStream && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 text-center gap-4 p-6">
+                <div className="w-24 h-24 bg-gray-800 rounded-full flex items-center justify-center border border-white/10 overflow-hidden">
+                  <img
+                    src={`/AvatarImages/PandaAvatar.png`}
+                    alt="Partner"
+                    className="w-full h-full object-cover grayscale opacity-50"
+                  />
+                </div>
+                <div>
+                  <p className="text-lg text-white font-medium">Connecting to {matchedUser}...</p>
+                  <p className="text-sm text-gray-400 mt-1">Establishing peer-to-peer connection</p>
+                </div>
+                <div className="flex gap-2">
+                  <div className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" />
+                  <div className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '0.15s' }} />
+                  <div className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '0.3s' }} />
+                </div>
+              </div>
+            )}
+
+            {/* Local Video PiP — top right, smaller on mobile */}
+            <div className="absolute top-3 right-3 w-28 h-20 sm:w-40 sm:h-28 md:w-52 md:h-36 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 z-20">
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover scale-x-[-1]"
+              />
+              {!isVideoOn && (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+                  <VideoOff className="w-6 h-6 text-white/30" />
+                </div>
+              )}
+              <div className="absolute bottom-1 left-1 bg-black/50 text-white text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-widest font-bold">
+                You
+              </div>
+            </div>
+
+            {/* Partner Name Tag */}
+            <div className="absolute bottom-20 left-4 bg-black/50 backdrop-blur-md text-white px-3 py-1.5 rounded-xl border border-white/10 flex items-center gap-2 z-10">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+              <span className="text-sm font-medium">{matchedUser}</span>
+            </div>
+          </div>
+
+          {/* Control Bar — fixed height, no overflow */}
+          <div className="flex-shrink-0 z-30 bg-black/60 backdrop-blur-xl border-t border-white/10 px-4 py-3 flex items-center justify-center gap-3 flex-wrap">
+            <button
+              onClick={toggleAudio}
+              className={`p-3 rounded-full transition-all duration-200 ${
+                isAudioOn ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-red-500 text-white shadow-lg shadow-red-500/30'
+              }`}
             >
-              <div className="px-6 py-6 border-b border-gray-100 flex items-center justify-between text-gray-900">
+              {isAudioOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+            </button>
+
+            <button
+              onClick={toggleVideo}
+              className={`p-3 rounded-full transition-all duration-200 ${
+                isVideoOn ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-red-500 text-white shadow-lg shadow-red-500/30'
+              }`}
+            >
+              {isVideoOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+            </button>
+
+            <button
+              onClick={() => setShowChat(!showChat)}
+              className={`p-3 rounded-full transition-all duration-200 relative ${
+                showChat ? 'bg-purple-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'
+              }`}
+            >
+              <MessageSquare className="w-5 h-5" />
+              {messages.length > 0 && !showChat && (
+                <span className="absolute top-1.5 right-1.5 bg-red-500 w-2.5 h-2.5 rounded-full border border-black/40" />
+              )}
+            </button>
+
+            <button
+              onClick={skipToNext}
+              className="p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all duration-200"
+            >
+              <SkipForward className="w-5 h-5" />
+            </button>
+
+            <button
+              onClick={goBack}
+              className="p-3 rounded-full bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-600/30 transition-all duration-200"
+            >
+              <PhoneOff className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Chat Panel — full-screen overlay on mobile, side panel on desktop */}
+          {showChat && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="absolute inset-0 z-40 flex flex-col bg-white md:relative md:inset-auto md:w-[360px] md:border-l md:border-gray-200"
+            >
+              {/* Chat Header */}
+              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-white flex-shrink-0">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-purple-600 rounded-full animate-pulse" />
-                  <h3 className="font-bold text-xl tracking-tight">Session Chat</h3>
+                  <h3 className="font-bold text-gray-900">Session Chat</h3>
                 </div>
-                <button onClick={() => setShowChat(false)} className="bg-gray-50 p-2 rounded-xl text-gray-400 hover:text-gray-900 transition-colors">
+                <button onClick={() => setShowChat(false)} className="p-2 rounded-xl text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 bg-white scroll-smooth">
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 bg-gray-50">
                 {messages.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-center space-y-3">
+                  <div className="flex flex-col items-center justify-center h-full text-center gap-3">
                     <div className="bg-purple-50 p-4 rounded-3xl">
-                      <MessageSquare className="w-10 h-10 text-purple-400" />
+                      <MessageSquare className="w-8 h-8 text-purple-400" />
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-gray-900 font-semibold text-lg">Empty Conversation</p>
-                      <p className="text-gray-400 text-sm max-w-[200px]">Send a message to start sharing your thoughts.</p>
-                    </div>
+                    <p className="text-gray-500 text-sm">No messages yet.<br />Say something!</p>
                   </div>
                 ) : (
                   messages.map((message, index) => (
-                    <div key={index} className={`flex ${message.sender === "You" ? "justify-end" : "justify-start"}`}>
-                      <div className={`flex flex-col gap-1.5 max-w-[85%] ${message.sender === "You" ? "items-end" : "items-start"}`}>
-                        <div className={`px-5 py-3 rounded-[24px] text-sm leading-relaxed shadow-sm ${
-                          message.sender === "You" 
-                            ? "bg-purple-600 text-white rounded-tr-none" 
-                            : "bg-gray-50 text-gray-800 border border-gray-100 rounded-tl-none"
-                        }`}>
-                          {message.text}
-                        </div>
-                        <span className="text-[10px] text-gray-400 font-medium px-2 uppercase tracking-tighter">
-                          {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
+                    <div key={index} className={`flex ${message.sender === 'You' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`px-4 py-2.5 rounded-2xl text-sm max-w-[80%] ${
+                        message.sender === 'You'
+                          ? 'bg-purple-600 text-white rounded-tr-none'
+                          : 'bg-white text-gray-800 border border-gray-100 rounded-tl-none shadow-sm'
+                      }`}>
+                        {message.text}
                       </div>
                     </div>
                   ))
@@ -576,46 +569,46 @@ export default function VideoCallPage() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {showEmojiPicker && (
-                <div className="p-4 border-t border-gray-100 bg-gray-50 max-h-48 overflow-y-auto">
-                  <div className="grid grid-cols-8 gap-2">
-                    {EMOJI_LIST.map((emoji, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => handleEmojiSelect(emoji)}
-                        className="text-xl hover:bg-white p-1 rounded transition-colors"
-                      >
-                        {emoji}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="p-6 bg-white border-t border-gray-50">
-                <div className="flex items-center gap-3 bg-gray-50 p-2 rounded-3xl border border-gray-100 focus-within:border-purple-200 focus-within:bg-white transition-all">
-                  <button 
+              {/* Input */}
+              <div className="p-4 bg-white border-t border-gray-100 flex-shrink-0">
+                <div className="flex items-center gap-2 bg-gray-50 px-4 py-2 rounded-2xl border border-gray-200 focus-within:border-purple-300 transition-colors">
+                  <button
                     onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                    className={`p-2 transition-colors ${showEmojiPicker ? 'text-purple-600' : 'text-gray-400 hover:text-purple-600'}`}
+                    className={`transition-colors flex-shrink-0 ${showEmojiPicker ? 'text-purple-600' : 'text-gray-400 hover:text-purple-600'}`}
                   >
-                    <Smile className="w-6 h-6" />
+                    <Smile className="w-5 h-5" />
                   </button>
                   <input
                     type="text"
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage(chatInput)}
-                    placeholder="Write a message..."
-                    className="flex-1 bg-transparent py-2 text-gray-900 outline-none placeholder:text-gray-400 text-sm font-medium"
+                    onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(chatInput)}
+                    placeholder="Type a message..."
+                    className="flex-1 bg-transparent py-1 text-gray-900 outline-none placeholder:text-gray-400 text-sm min-w-0"
                   />
-                  <button 
-                    onClick={() => handleSendMessage(chatInput)} 
-                    disabled={!chatInput.trim() || isLoading}
-                    className="bg-purple-600 p-2.5 rounded-full text-white shadow-lg shadow-purple-600/30 active:scale-95 disabled:opacity-30 transition-all"
+                  <button
+                    onClick={() => handleSendMessage(chatInput)}
+                    disabled={!chatInput.trim()}
+                    className="bg-purple-600 p-2 rounded-full text-white disabled:opacity-30 transition-all flex-shrink-0"
                   >
-                    <Send className="w-5 h-5" />
+                    <Send className="w-4 h-4" />
                   </button>
                 </div>
+                {showEmojiPicker && (
+                  <div className="pt-3 max-h-36 overflow-y-auto">
+                    <div className="grid grid-cols-8 gap-1">
+                      {EMOJI_LIST.map((emoji, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => handleEmojiSelect(emoji)}
+                          className="text-xl hover:bg-gray-100 p-1 rounded transition-colors"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
