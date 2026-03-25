@@ -29,9 +29,11 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 
 app.use(cors({
   origin: function(origin, callback) {
+    // Allow same-origin requests (no origin) or trusted local origins
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    // Automatically trust .onrender.com and any in allowedOrigins
+    if (allowedOrigins.indexOf(origin) !== -1 || origin.endsWith('.onrender.com')) {
       return callback(null, true);
     }
     
