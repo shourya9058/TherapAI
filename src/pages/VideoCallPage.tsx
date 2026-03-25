@@ -152,10 +152,17 @@ export default function VideoCallPage() {
       }
     };
 
-    // 🎥 Receive partner's camera/mic status in real-time
     const handleMediaStatus = ({ videoOn, audioOn }: { videoOn: boolean; audioOn: boolean }) => {
       if (videoOn !== undefined) setRemoteVideoOn(videoOn);
       if (audioOn !== undefined) setRemoteAudioOn(audioOn);
+    };
+
+    // 📡 Handle local socket disconnection (e.g. internet drop)
+    const handleLocalDisconnect = () => {
+      if (roomId) {
+        console.log('📡 Local socket disconnected');
+        setIsCallEnded(true);
+      }
     };
 
     socket.on('match-found', handleMatchFound);
@@ -164,6 +171,7 @@ export default function VideoCallPage() {
     socket.on('chat-message', handleChatMessage);
     socket.on('remote-video-frame', handleRemoteVideoFrame);
     socket.on('media-status', handleMediaStatus);
+    socket.on('disconnect', handleLocalDisconnect);
 
     return () => {
       socket.off('match-found', handleMatchFound);
@@ -172,7 +180,7 @@ export default function VideoCallPage() {
       socket.off('chat-message', handleChatMessage);
       socket.off('remote-video-frame', handleRemoteVideoFrame);
       socket.off('media-status', handleMediaStatus);
-      // ⚠️ NOT clearing videoFrameInterval here — that's handled by the roomId effect
+      socket.off('disconnect', handleLocalDisconnect);
     };
   }, [startCall]);
 
@@ -614,7 +622,7 @@ export default function VideoCallPage() {
                   <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
                     <PhoneOff className="w-10 h-10 text-red-500" />
                   </div>
-                  <h2 className="text-2xl font-bold text-white mb-2">Consultation Ended</h2>
+                  <h2 className="text-2xl font-bold text-white mb-2">The other user left the chat</h2>
                   <p className="text-gray-400 mb-8">
                     Your session with <span className="text-white font-medium">{matchedUser}</span> has concluded.
                   </p>

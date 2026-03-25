@@ -61,10 +61,14 @@ export const handleVideoCallSocket = (io) => {
           isOfferer: false
         });
 
-        // Join both to weights
+        // Join both to rooms and track active room ID
         socket.join(roomId);
+        socket.activeRoomId = roomId; // 👈 CRITICAL: track this for disconnect cleanup
         const partnerSocket = io.sockets.sockets.get(partner.socketId);
-        if (partnerSocket) partnerSocket.join(roomId);
+        if (partnerSocket) {
+          partnerSocket.join(roomId);
+          partnerSocket.activeRoomId = roomId;
+        }
         
       } else {
         // Add to queue
@@ -100,11 +104,13 @@ export const handleVideoCallSocket = (io) => {
     socket.on('end-call', ({ roomId }) => {
       socket.to(roomId).emit('call-ended');
       socket.leave(roomId);
+      socket.activeRoomId = null;
     });
 
-    // Disconnect handling
-    socket.on('disconnect', () => {
-      console.log(`🔌 Client disconnected: ${socket.id}`);
+    // Disconnect handling — use 'disconnecting' instead of 'disconnect' 
+    // because rooms are still accessible in 'disconnecting'
+    socket.on('disconnecting', () => {
+      console.log(`🔌 Client disconnecting: ${socket.id}`);
       
       const { mode, category } = socket.userData || {};
       
@@ -120,12 +126,20 @@ export const handleVideoCallSocket = (io) => {
         }
       }
 
-      // Notify any active room partners
+      // Notify any active room partners using tracked room ID or socket.rooms
+      if (socket.activeRoomId) {
+        socket.to(socket.activeRoomId).emit('partner-disconnected');
+      }
+
       socket.rooms.forEach(room => {
         if (room.startsWith('room_')) {
           socket.to(room).emit('partner-disconnected');
         }
       });
+    });
+
+    socket.on('disconnect', () => {
+      console.log(`🔌 Client fully disconnected: ${socket.id}`);
     });
   });
 };
