@@ -95,6 +95,11 @@ export const handleVideoCallSocket = (io) => {
       socket.to(roomId).emit('remote-video-frame', { frame });
     });
 
+    // Audio Frame Relay (socket.io audio streaming fallback)
+    socket.on('audio-frame', ({ roomId, frame }) => {
+      socket.to(roomId).emit('remote-audio-frame', { frame });
+    });
+
     // Media status relay (camera/mic on-off)
     socket.on('media-status', ({ roomId, videoOn, audioOn }) => {
       socket.to(roomId).emit('media-status', { videoOn, audioOn });

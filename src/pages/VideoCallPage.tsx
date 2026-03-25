@@ -77,8 +77,8 @@ export default function VideoCallPage() {
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
   const remoteImgRef = useRef<HTMLImageElement>(null)  // Direct ref — no React state per frame!
-  const videoFrameInterval = useRef<ReturnType<typeof setInterval> | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const audioRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
 
   const { 
     isVideoOn, 
@@ -157,11 +157,26 @@ export default function VideoCallPage() {
       if (audioOn !== undefined) setRemoteAudioOn(audioOn);
     };
 
+    const handleRemoteAudioFrame = ({ frame }: { frame: string }) => {
+      // Decode base64 to blob and play
+      const byteCharacters = atob(frame);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'audio/webm;codecs=opus' }); // Most common fallback
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.play().catch(_ => {}); // Ignore silent play errors
+    };
+
     socket.on('match-found', handleMatchFound);
     socket.on('call-ended', handleCallEnded);
     socket.on('partner-disconnected', handleCallEnded);
     socket.on('chat-message', handleChatMessage);
     socket.on('remote-video-frame', handleRemoteVideoFrame);
+    socket.on('remote-audio-frame', handleRemoteAudioFrame);
     socket.on('media-status', handleMediaStatus);
 
     return () => {
@@ -170,6 +185,7 @@ export default function VideoCallPage() {
       socket.off('partner-disconnected', handleCallEnded);
       socket.off('chat-message', handleChatMessage);
       socket.off('remote-video-frame', handleRemoteVideoFrame);
+      socket.off('remote-audio-frame', handleRemoteAudioFrame);
       socket.off('media-status', handleMediaStatus);
     };
   }, [startCall]);
@@ -208,12 +224,46 @@ export default function VideoCallPage() {
     // 2s delay on mobile for camera init, then capture runs until roomId changes
     const timer = setTimeout(startCapture, 2000);
 
+    // 🎙️ High-Reliability AUDIO Relay
+    if (localStream) {
+      const audioTrack = localStream.getAudioTracks()[0];
+      if (audioTrack) {
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
+          ? 'audio/webm;codecs=opus' 
+          : 'audio/mp4';
+        
+        try {
+          const recorder = new MediaRecorder(localStream, { mimeType });
+          audioRecorderRef.current = recorder;
+          
+          recorder.ondataavailable = (e) => {
+            if (e.data.size > 0 && isAudioOn) {
+              const reader = new FileReader();
+              reader.readAsDataURL(e.data);
+              reader.onloadend = () => {
+                const base64data = (reader.result as string).split(',')[1];
+                socketService.emit('audio-frame', { roomId, frame: base64data });
+              };
+            }
+          };
+          
+          recorder.start(250); // Emit 250ms chunks
+          console.log(`🎙️ Audio relay started (${mimeType})`);
+        } catch (err) {
+          console.error('Failed to start audio recorder:', err);
+        }
+      }
+    }
+
     return () => {
       clearTimeout(timer);
       clearInterval(interval);
-      console.log('🛑 Video capture stopped (roomId changed)');
+      if (audioRecorderRef.current && audioRecorderRef.current.state !== 'inactive') {
+        audioRecorderRef.current.stop();
+      }
+      console.log('🛑 Audio/Video relay stopped (roomId changed)');
     };
-  }, [roomId]); // ⬅️ Only re-runs when room changes, NOT on every render
+  }, [roomId, localStream, isAudioOn]); // ⬅️ Re-runs when audio toggle or stream changes
 
   // Reset remote status when call ends
   useEffect(() => {
@@ -749,13 +799,13 @@ export default function VideoCallPage() {
                   </div>
 
                   {/* Input */}
-                  <div className="p-6 bg-white border-t border-gray-100 flex-shrink-0">
-                    <div className="flex items-center gap-3 bg-gray-100 px-4 py-3 rounded-2xl focus-within:bg-white focus-within:ring-2 focus-within:ring-purple-500/20 transition-all border border-transparent focus-within:border-purple-300">
+                  <div className="p-3 sm:p-6 bg-white border-t border-gray-100 flex-shrink-0">
+                    <div className="flex items-center gap-2 sm:gap-3 bg-gray-100 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl focus-within:bg-white focus-within:ring-2 focus-within:ring-purple-500/20 transition-all border border-transparent focus-within:border-purple-300">
                       <button
                         onClick={() => setShowEmojiPicker(!showEmojiPicker)}
                         className={`transition-all flex-shrink-0 ${showEmojiPicker ? 'text-purple-600 scale-110' : 'text-gray-400 hover:text-purple-600'}`}
                       >
-                        <Smile className="w-6 h-6" />
+                        <Smile className="w-5 h-5 sm:w-6 h-6" />
                       </button>
                       <input
                         type="text"
@@ -763,14 +813,14 @@ export default function VideoCallPage() {
                         onChange={(e) => setChatInput(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(chatInput)}
                         placeholder="Type a message..."
-                        className="flex-1 bg-transparent py-1 text-gray-900 outline-none placeholder:text-gray-400 text-sm font-medium"
+                        className="flex-1 bg-transparent py-1 text-gray-900 outline-none placeholder:text-gray-400 text-sm font-medium min-w-0"
                       />
                       <button
                         onClick={() => handleSendMessage(chatInput)}
                         disabled={!chatInput.trim()}
-                        className="bg-purple-600 p-2.5 rounded-xl text-white disabled:opacity-30 shadow-lg shadow-purple-600/30 transition-all hover:scale-105 active:scale-95"
+                        className="bg-purple-600 p-2 sm:p-2.5 rounded-xl text-white disabled:opacity-30 shadow-lg shadow-purple-600/30 transition-all hover:scale-105 active:scale-95 flex-shrink-0 mr-1"
                       >
-                        <Send className="w-5 h-5" />
+                        <Send className="w-4 h-4 sm:w-5 h-5" />
                       </button>
                     </div>
                     
