@@ -32,6 +32,9 @@ interface UseWebRTCReturn {
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
+  { urls: "stun:stun3.l.google.com:19302" },
+  // Free TURN servers (multiple for redundancy)
   {
     urls: "turn:openrelay.metered.ca:80",
     username: "openrelayproject",
@@ -46,6 +49,12 @@ const ICE_SERVERS: RTCIceServer[] = [
     urls: "turns:openrelay.metered.ca:443",
     username: "openrelayproject",
     credential: "openrelayproject",
+  },
+  // Backup free TURN
+  {
+    urls: "turn:relay1.expressturn.com:3478",
+    username: "efVNF9I7GKFZPDUKQL",
+    credential: "2FLoLFV4Ly2VPnKm",
   },
 ];
 
@@ -72,6 +81,8 @@ export const useWebRTC = ({
   const pendingCandidates = useRef<RTCIceCandidateInit[]>([])
   const remoteDescSet = useRef(false)
 
+  const remoteStreamRef = useRef<MediaStream>(new MediaStream())
+
   const createPeerConnection = useCallback(
     (stream: MediaStream): RTCPeerConnection => {
       // Clean up any existing connection
@@ -81,6 +92,9 @@ export const useWebRTC = ({
       }
       pendingCandidates.current = []
       remoteDescSet.current = false
+      // Reset remote stream accumulator
+      remoteStreamRef.current = new MediaStream()
+      setRemoteStream(null)
 
       const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 })
       peerConnection.current = pc
@@ -91,21 +105,34 @@ export const useWebRTC = ({
       })
 
       // When we get remote tracks, display them
+      // CRITICAL: Handle BOTH event.streams (desktop) AND bare event.track (iOS/Android)
       pc.ontrack = (event) => {
-        console.log("🎥 Remote track received:", event.track.kind)
-        if (event.streams?.[0]) {
-          const rs = event.streams[0]
-          setRemoteStream(rs)
-          if (remoteVideoRef.current) {
-            remoteVideoRef.current.srcObject = rs
-            remoteVideoRef.current.play().catch((e) => console.warn("Remote play error:", e))
-          }
-          const audioTrack = rs.getAudioTracks()[0]
-          if (audioTrack) {
-            setRemoteAudioOn(audioTrack.enabled)
-            audioTrack.onmute = () => setRemoteAudioOn(false)
-            audioTrack.onunmute = () => setRemoteAudioOn(true)
-          }
+        console.log("🎥 Remote track received:", event.track.kind, "streams:", event.streams.length)
+        
+        const rs = remoteStreamRef.current
+        
+        if (event.streams && event.streams.length > 0) {
+          // Standard path: use the stream directly
+          event.streams[0].getTracks().forEach(track => {
+            if (!rs.getTracks().includes(track)) rs.addTrack(track)
+          })
+        } else {
+          // Mobile/iOS path: add bare track to our accumulator stream
+          rs.addTrack(event.track)
+        }
+
+        // Make sure video element shows the stream
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = rs
+          remoteVideoRef.current.play().catch((e) => console.warn("Remote play error:", e))
+        }
+        setRemoteStream(rs)
+
+        const audioTrack = rs.getAudioTracks()[0]
+        if (audioTrack) {
+          setRemoteAudioOn(audioTrack.enabled)
+          audioTrack.onmute = () => setRemoteAudioOn(false)
+          audioTrack.onunmute = () => setRemoteAudioOn(true)
         }
       }
 
