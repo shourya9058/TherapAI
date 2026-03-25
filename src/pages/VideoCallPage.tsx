@@ -72,6 +72,7 @@ export default function VideoCallPage() {
   const [remoteVideoStarted, setRemoteVideoStarted] = useState(false)
   const [remoteVideoOn, setRemoteVideoOn] = useState(true)    // remote camera status
   const [remoteAudioOn, setRemoteAudioOn] = useState(true)    // remote mic status
+  const [isCallEnded, setIsCallEnded] = useState(false)       // New state for disconnection screen
 
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
@@ -122,17 +123,16 @@ export default function VideoCallPage() {
       setMatchedUser(partner.username);
       setRoomId(roomId);
       setIsMatching(false);
+      setIsCallEnded(false); // Reset if it was ended
       startCall(roomId, isOfferer);
       recordConnection(partner.id).catch(err => console.error('Failed to record connection:', err));
       // ✅ Video capture now handled separately in the roomId-keyed useEffect below
     };
 
     const handleCallEnded = () => {
-      setMatchedUser(null);
-      setRoomId(null);
-      setMessages([]);
-      setIsMatching(false);
-      if (videoFrameInterval.current) clearInterval(videoFrameInterval.current);
+      console.log('🏁 Call ended by partner');
+      setIsCallEnded(true);
+      // We don't null out matchedUser immediately so the ended screen can show their name/avatar
     };
 
     // ✅ Receive chat messages via socket.io (guaranteed delivery regardless of WebRTC state)
@@ -285,8 +285,10 @@ export default function VideoCallPage() {
     setMessages([])
     setMatchedUser(null)
     setRoomId(null)
-    setIsMatching(true)
-    
+    setIsMatching(false)
+    setIsCallEnded(false)
+    setConnectionMode(null)
+    setExpertCategory(null)
     socketService.emit('join-matchmaking', {
       mode: connectionMode,
       category: expertCategory,
@@ -506,15 +508,17 @@ export default function VideoCallPage() {
                 <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
                 <span className="text-white text-xs font-mono">LIVE</span>
               </div>
-              <button
-                onClick={() => setShowChat(!showChat)}
-                className={`p-2 rounded-full transition-all ${showChat ? 'bg-purple-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
-              >
-                <MessageSquare className="w-5 h-5" />
-                {messages.length > 0 && !showChat && (
-                  <span className="absolute top-1 right-1 bg-red-500 w-2 h-2 rounded-full" />
-                )}
-              </button>
+              {!isCallEnded && (
+                <button
+                  onClick={() => setShowChat(!showChat)}
+                  className={`p-2 rounded-full transition-all relative ${showChat ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/50' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                >
+                  <MessageSquare className="w-5 h-5" />
+                  {messages.length > 0 && !showChat && (
+                    <span className="absolute -top-1 -right-1 bg-red-500 w-3 h-3 rounded-full border-2 border-gray-900 animate-bounce" />
+                  )}
+                </button>
+              )}
             </div>
           </div>
 
@@ -599,142 +603,205 @@ export default function VideoCallPage() {
               </div>
             </div>
 
+            {/* Disconnection Overlay */}
+            {isCallEnded && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="absolute inset-0 z-50 bg-gray-900/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center"
+              >
+                <div className="max-w-md w-full bg-gray-800 rounded-3xl p-8 border border-white/10 shadow-2xl scale-110">
+                  <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <PhoneOff className="w-10 h-10 text-red-500" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-white mb-2">Consultation Ended</h2>
+                  <p className="text-gray-400 mb-8">
+                    Your session with <span className="text-white font-medium">{matchedUser}</span> has concluded.
+                  </p>
+                  <div className="flex flex-col gap-3">
+                    <button
+                      onClick={skipToNext}
+                      className="w-full py-4 bg-purple-600 text-white rounded-2xl font-bold hover:bg-purple-700 transition-all flex items-center justify-center gap-2"
+                    >
+                      <SkipForward className="w-5 h-5" />
+                      Match with Someone Else
+                    </button>
+                    <button
+                      onClick={goBack}
+                      className="w-full py-4 bg-white/5 text-white rounded-2xl font-bold hover:bg-white/10 transition-all"
+                    >
+                      Back to Home
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
           </div> {/* end video area */}
 
           {/* Control Bar — fixed height, no overflow */}
-          <div className="flex-shrink-0 z-30 bg-black/60 backdrop-blur-xl border-t border-white/10 px-4 py-3 flex items-center justify-center gap-3 flex-wrap">
-            <button
-              onClick={toggleAudio}
-              className={`p-3 rounded-full transition-all duration-200 ${
-                isAudioOn ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-red-500 text-white shadow-lg shadow-red-500/30'
-              }`}
-            >
-              {isAudioOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
-            </button>
+          {!isCallEnded && (
+            <div className="flex-shrink-0 z-30 bg-black/60 backdrop-blur-xl border-t border-white/10 px-4 py-3 flex items-center justify-center gap-3 flex-wrap">
+              <button
+                onClick={toggleAudio}
+                className={`p-3 rounded-full transition-all duration-200 ${
+                  isAudioOn ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-red-500 text-white shadow-lg shadow-red-500/30'
+                }`}
+              >
+                {isAudioOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+              </button>
 
-            <button
-              onClick={toggleVideo}
-              className={`p-3 rounded-full transition-all duration-200 ${
-                isVideoOn ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-red-500 text-white shadow-lg shadow-red-500/30'
-              }`}
-            >
-              {isVideoOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-            </button>
+              <button
+                onClick={toggleVideo}
+                className={`p-3 rounded-full transition-all duration-200 ${
+                  isVideoOn ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-red-500 text-white shadow-lg shadow-red-500/30'
+                }`}
+              >
+                {isVideoOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+              </button>
 
-            <button
-              onClick={() => setShowChat(!showChat)}
-              className={`p-3 rounded-full transition-all duration-200 relative ${
-                showChat ? 'bg-purple-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'
-              }`}
-            >
-              <MessageSquare className="w-5 h-5" />
-              {messages.length > 0 && !showChat && (
-                <span className="absolute top-1.5 right-1.5 bg-red-500 w-2.5 h-2.5 rounded-full border border-black/40" />
-              )}
-            </button>
+              <button
+                onClick={() => setShowChat(!showChat)}
+                className={`p-3 rounded-full transition-all duration-200 relative ${
+                  showChat ? 'bg-purple-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'
+                }`}
+              >
+                <MessageSquare className="w-5 h-5" />
+                {messages.length > 0 && !showChat && (
+                  <span className="absolute top-1.5 right-1.5 bg-red-500 w-2.5 h-2.5 rounded-full border border-black/40" />
+                )}
+              </button>
 
-            <button
-              onClick={skipToNext}
-              className="p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all duration-200"
-            >
-              <SkipForward className="w-5 h-5" />
-            </button>
+              <button
+                onClick={skipToNext}
+                className="p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all duration-200"
+              >
+                <SkipForward className="w-5 h-5" />
+              </button>
 
-            <button
-              onClick={goBack}
-              className="p-3 rounded-full bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-600/30 transition-all duration-200"
-            >
-              <PhoneOff className="w-6 h-6" />
-            </button>
-          </div>
+              <button
+                onClick={goBack}
+                className="p-3 rounded-full bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-600/30 transition-all duration-200"
+              >
+                <PhoneOff className="w-6 h-6" />
+              </button>
+            </div>
+          )}
 
-          {/* Chat Panel — full-screen overlay on mobile, side panel on desktop */}
-          {showChat && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              className="absolute inset-0 z-40 flex flex-col bg-white md:relative md:inset-auto md:w-[360px] md:border-l md:border-gray-200"
-            >
-              {/* Chat Header */}
-              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-white flex-shrink-0">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-purple-600 rounded-full animate-pulse" />
-                  <h3 className="font-bold text-gray-900">Session Chat</h3>
-                </div>
-                <button onClick={() => setShowChat(false)} className="p-2 rounded-xl text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-colors">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Messages */}
-              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 bg-gray-50">
-                {messages.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-center gap-3">
-                    <div className="bg-purple-50 p-4 rounded-3xl">
-                      <MessageSquare className="w-8 h-8 text-purple-400" />
-                    </div>
-                    <p className="text-gray-500 text-sm">No messages yet.<br />Say something!</p>
-                  </div>
-                ) : (
-                  messages.map((message, index) => (
-                    <div key={index} className={`flex ${message.sender === 'You' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`px-4 py-2.5 rounded-2xl text-sm max-w-[80%] ${
-                        message.sender === 'You'
-                          ? 'bg-purple-600 text-white rounded-tr-none'
-                          : 'bg-white text-gray-800 border border-gray-100 rounded-tl-none shadow-sm'
-                      }`}>
-                        {message.text}
+          {/* Chat Panel — Sliding Drawer */}
+          <AnimatePresence>
+            {showChat && (
+              <>
+                {/* Mobile Backdrop */}
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setShowChat(false)}
+                  className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 md:hidden"
+                />
+                
+                <motion.div
+                  initial={{ x: '100%' }}
+                  animate={{ x: 0 }}
+                  exit={{ x: '100%' }}
+                  transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                  className="fixed top-0 right-0 h-full w-[85%] md:w-[400px] z-50 flex flex-col bg-white shadow-[-10px_0_30px_rgba(0,0,0,0.2)]"
+                >
+                  {/* Chat Header */}
+                  <div className="px-5 py-6 border-b border-gray-100 flex items-center justify-between bg-white flex-shrink-0">
+                    <div className="flex items-center gap-3">
+                      <div className="w-3 h-3 bg-purple-600 rounded-full animate-pulse" />
+                      <div>
+                        <h3 className="font-bold text-gray-900 leading-none">Session Chat</h3>
+                        <p className="text-[10px] text-gray-400 mt-1 uppercase tracking-wider font-bold">End-to-End Encrypted</p>
                       </div>
                     </div>
-                  ))
-                )}
-                <div ref={messagesEndRef} />
-              </div>
-
-              {/* Input */}
-              <div className="p-4 bg-white border-t border-gray-100 flex-shrink-0">
-                <div className="flex items-center gap-2 bg-gray-50 px-4 py-2 rounded-2xl border border-gray-200 focus-within:border-purple-300 transition-colors">
-                  <button
-                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                    className={`transition-colors flex-shrink-0 ${showEmojiPicker ? 'text-purple-600' : 'text-gray-400 hover:text-purple-600'}`}
-                  >
-                    <Smile className="w-5 h-5" />
-                  </button>
-                  <input
-                    type="text"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(chatInput)}
-                    placeholder="Type a message..."
-                    className="flex-1 bg-transparent py-1 text-gray-900 outline-none placeholder:text-gray-400 text-sm min-w-0"
-                  />
-                  <button
-                    onClick={() => handleSendMessage(chatInput)}
-                    disabled={!chatInput.trim()}
-                    className="bg-purple-600 p-2 rounded-full text-white disabled:opacity-30 transition-all flex-shrink-0"
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
-                </div>
-                {showEmojiPicker && (
-                  <div className="pt-3 max-h-36 overflow-y-auto">
-                    <div className="grid grid-cols-8 gap-1">
-                      {EMOJI_LIST.map((emoji, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => handleEmojiSelect(emoji)}
-                          className="text-xl hover:bg-gray-100 p-1 rounded transition-colors"
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
+                    <button onClick={() => setShowChat(false)} className="p-2 rounded-xl text-gray-400 hover:text-gray-900 hover:bg-gray-100 transition-colors">
+                      <X className="w-6 h-6" />
+                    </button>
                   </div>
-                )}
-              </div>
-            </motion.div>
-          )}
+
+                  {/* Messages */}
+                  <div className="flex-1 overflow-y-auto px-5 py-6 space-y-4 bg-gray-50/50">
+                    {messages.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full text-center gap-4 opacity-40">
+                        <div className="bg-purple-100 p-6 rounded-full">
+                          <MessageSquare className="w-10 h-10 text-purple-600" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="font-bold text-gray-900 uppercase text-xs tracking-widest">Secure Chat</p>
+                          <p className="text-gray-500 text-sm">No messages yet.<br />Say something!</p>
+                        </div>
+                      </div>
+                    ) : (
+                      messages.map((message, index) => (
+                        <div key={index} className={`flex ${message.sender === 'You' ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`px-4 py-3 rounded-2xl text-sm max-w-[85%] shadow-sm ${
+                            message.sender === 'You'
+                              ? 'bg-purple-600 text-white rounded-tr-none'
+                              : 'bg-white text-gray-800 border border-gray-100 rounded-tl-none'
+                          }`}>
+                            {message.text}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    <div ref={messagesEndRef} />
+                  </div>
+
+                  {/* Input */}
+                  <div className="p-6 bg-white border-t border-gray-100 flex-shrink-0">
+                    <div className="flex items-center gap-3 bg-gray-100 px-4 py-3 rounded-2xl focus-within:bg-white focus-within:ring-2 focus-within:ring-purple-500/20 transition-all border border-transparent focus-within:border-purple-300">
+                      <button
+                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                        className={`transition-all flex-shrink-0 ${showEmojiPicker ? 'text-purple-600 scale-110' : 'text-gray-400 hover:text-purple-600'}`}
+                      >
+                        <Smile className="w-6 h-6" />
+                      </button>
+                      <input
+                        type="text"
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(chatInput)}
+                        placeholder="Type a message..."
+                        className="flex-1 bg-transparent py-1 text-gray-900 outline-none placeholder:text-gray-400 text-sm font-medium"
+                      />
+                      <button
+                        onClick={() => handleSendMessage(chatInput)}
+                        disabled={!chatInput.trim()}
+                        className="bg-purple-600 p-2.5 rounded-xl text-white disabled:opacity-30 shadow-lg shadow-purple-600/30 transition-all hover:scale-105 active:scale-95"
+                      >
+                        <Send className="w-5 h-5" />
+                      </button>
+                    </div>
+                    
+                    <AnimatePresence>
+                      {showEmojiPicker && (
+                        <motion.div 
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="pt-4"
+                        >
+                          <div className="grid grid-cols-8 gap-2 max-h-40 overflow-y-auto p-1">
+                            {EMOJI_LIST.map((emoji, idx) => (
+                              <button
+                                key={idx}
+                                onClick={() => handleEmojiSelect(emoji)}
+                                className="text-2xl hover:bg-purple-50 p-2 rounded-xl transition-all hover:scale-110 active:scale-90 flex items-center justify-center"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
         </motion.div>
       )}
     </AnimatePresence>
