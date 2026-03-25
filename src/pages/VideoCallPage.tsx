@@ -19,7 +19,6 @@ import {
   Smile,
 } from "lucide-react"
 import { useWebRTC } from '../hooks/useWebRTC';
-import { getUserAvatar } from '../utils/avatarUtils';
 import { useAuth } from '../contexts/AuthContext';
 import { recordConnection } from '../services/connectionService';
 import { socketService } from "../services/socketService";
@@ -70,19 +69,17 @@ export default function VideoCallPage() {
   const [expertCategory, setExpertCategory] = useState<string | null>(null)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [roomId, setRoomId] = useState<string | null>(null)
-  const [remoteVideoSrc, setRemoteVideoSrc] = useState<string>('')  // Socket.io video relay
+  const [remoteVideoStarted, setRemoteVideoStarted] = useState(false) // true once first frame arrives
 
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
-  const remoteImgRef = useRef<HTMLImageElement>(null)   // For socket.io video relay
+  const remoteImgRef = useRef<HTMLImageElement>(null)  // Direct ref — no React state per frame!
   const videoFrameInterval = useRef<ReturnType<typeof setInterval> | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const { 
     isVideoOn, 
     isAudioOn, 
-    remoteStream, 
-    isLoading, 
     toggleVideo, 
     toggleAudio, 
     sendMessage,
@@ -166,9 +163,16 @@ export default function VideoCallPage() {
       setMessages((prev) => [...prev, { text: message, sender: 'Other', timestamp: Date.now() }]);
     };
 
-    // 🎥 Receive remote video frames via socket.io — using React state for reliable mobile rendering
+    // 🎥 OPTIMIZED: Direct ref update (no React state per frame = no re-renders = works on mobile!)
     const handleRemoteVideoFrame = ({ frame }: { frame: string }) => {
-      setRemoteVideoSrc(frame);
+      if (remoteImgRef.current) {
+        remoteImgRef.current.src = frame;
+        // Only trigger ONE React state update to show the video (hides placeholder)
+        if (remoteImgRef.current.style.display === 'none') {
+          remoteImgRef.current.style.display = 'block';
+          setRemoteVideoStarted(true);
+        }
+      }
     };
 
     socket.on('match-found', handleMatchFound);
@@ -186,6 +190,14 @@ export default function VideoCallPage() {
       if (videoFrameInterval.current) clearInterval(videoFrameInterval.current);
     };
   }, [startCall]);
+
+  // Also reset remoteVideoStarted when call ends
+  useEffect(() => {
+    if (!matchedUser) {
+      setRemoteVideoStarted(false);
+      if (remoteImgRef.current) remoteImgRef.current.style.display = 'none';
+    }
+  }, [matchedUser]);
 
   // Init media when mode is selected
   useEffect(() => {
@@ -468,21 +480,19 @@ export default function VideoCallPage() {
 
           {/* Video Area — fills remaining height */}
           <div className="flex-1 relative bg-black overflow-hidden">
-            {/* Remote Video — socket.io relay via React state (works on all devices) */}
-            {remoteVideoSrc ? (
-              <img
-                src={remoteVideoSrc}
-                alt="Remote video"
-                className="w-full h-full object-cover"
-              />
-            ) : (
+            {/* Remote video — direct ref, src updated without React re-renders */}
+            <img
+              ref={remoteImgRef}
+              alt="Remote video"
+              className="absolute inset-0 w-full h-full object-cover"
+              style={{ display: 'none' }}
+            />
+
+            {/* Placeholder — shown until first frame arrives */}
+            {!remoteVideoStarted && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 text-center gap-4 p-6">
                 <div className="w-24 h-24 bg-gray-800 rounded-full flex items-center justify-center border border-white/10 overflow-hidden">
-                  <img
-                    src="/AvatarImages/PandaAvatar.png"
-                    alt="Partner"
-                    className="w-full h-full object-cover grayscale opacity-50"
-                  />
+                  <img src="/AvatarImages/PandaAvatar.png" alt="Partner" className="w-full h-full object-cover grayscale opacity-50" />
                 </div>
                 <div>
                   <p className="text-lg text-white font-medium">Connecting to {matchedUser}...</p>
@@ -496,7 +506,7 @@ export default function VideoCallPage() {
               </div>
             )}
 
-            {/* WebRTC hidden video (audio transport when available) */}
+            {/* WebRTC hidden audio channel (P2P audio when available) */}
             <video ref={remoteVideoRef} autoPlay playsInline className="absolute w-0 h-0 opacity-0" />
 
             {/* Local Video PiP — top right, smaller on mobile */}
