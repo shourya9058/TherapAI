@@ -70,6 +70,7 @@ export default function VideoCallPage() {
   const [expertCategory, setExpertCategory] = useState<string | null>(null)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [roomId, setRoomId] = useState<string | null>(null)
+  const [remoteVideoSrc, setRemoteVideoSrc] = useState<string>('')  // Socket.io video relay
 
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
@@ -133,17 +134,23 @@ export default function VideoCallPage() {
         canvas.height = 240;
         const ctx = canvas.getContext('2d');
         videoFrameInterval.current = setInterval(() => {
-          if (!localVideoRef.current || !ctx || !localVideoRef.current.readyState) return;
-          ctx.save();
-          ctx.scale(-1, 1);
-          ctx.drawImage(localVideoRef.current, -320, 0, 320, 240);
-          ctx.restore();
-          const frame = canvas.toDataURL('image/jpeg', 0.6);
-          socketService.emit('video-frame', { roomId, frame });
+          const video = localVideoRef.current;
+          // readyState >= 2 means HAVE_CURRENT_DATA — safe to draw
+          if (!video || !ctx || video.readyState < 2 || video.videoWidth === 0) return;
+          try {
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.drawImage(video, -320, 0, 320, 240);
+            ctx.restore();
+            const frame = canvas.toDataURL('image/jpeg', 0.6);
+            socketService.emit('video-frame', { roomId, frame });
+          } catch (e) {
+            // Ignore draw errors (video not ready)
+          }
         }, 100); // 10fps
       };
-      // Slight delay to let media initialize
-      setTimeout(startVideoStream, 1500);
+      // Delay to ensure local video has started playing on mobile
+      setTimeout(startVideoStream, 2000);
     };
 
     const handleCallEnded = () => {
@@ -159,11 +166,9 @@ export default function VideoCallPage() {
       setMessages((prev) => [...prev, { text: message, sender: 'Other', timestamp: Date.now() }]);
     };
 
-    // 🎥 Receive remote video frames via socket.io
+    // 🎥 Receive remote video frames via socket.io — using React state for reliable mobile rendering
     const handleRemoteVideoFrame = ({ frame }: { frame: string }) => {
-      if (remoteImgRef.current) {
-        remoteImgRef.current.src = frame;
-      }
+      setRemoteVideoSrc(frame);
     };
 
     socket.on('match-found', handleMatchFound);
@@ -463,47 +468,36 @@ export default function VideoCallPage() {
 
           {/* Video Area — fills remaining height */}
           <div className="flex-1 relative bg-black overflow-hidden">
-            {/* Remote Video — socket.io frame relay (guaranteed on any network) */}
-            <img
-              ref={remoteImgRef}
-              alt="Remote video"
-              className="w-full h-full object-cover"
-              style={{ display: 'none' }}
-              onLoad={() => {
-                if (remoteImgRef.current) remoteImgRef.current.style.display = 'block';
-                // Hide placeholder when first frame arrives
-                const placeholder = document.getElementById('remote-placeholder');
-                if (placeholder) placeholder.style.display = 'none';
-              }}
-            />
-
-            {/* WebRTC video (hidden — audio only, P2P when available) */}
-            <video
-              ref={remoteVideoRef}
-              autoPlay
-              playsInline
-              className="absolute w-0 h-0 opacity-0"
-            />
-
-            {/* Waiting placeholder */}
-            <div id="remote-placeholder" className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 text-center gap-4 p-6">
-              <div className="w-24 h-24 bg-gray-800 rounded-full flex items-center justify-center border border-white/10 overflow-hidden">
-                <img
-                  src={`/AvatarImages/PandaAvatar.png`}
-                  alt="Partner"
+            {/* Remote Video — socket.io relay via React state (works on all devices) */}
+            {remoteVideoSrc ? (
+              <img
+                src={remoteVideoSrc}
+                alt="Remote video"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 text-center gap-4 p-6">
+                <div className="w-24 h-24 bg-gray-800 rounded-full flex items-center justify-center border border-white/10 overflow-hidden">
+                  <img
+                    src="/AvatarImages/PandaAvatar.png"
+                    alt="Partner"
                     className="w-full h-full object-cover grayscale opacity-50"
                   />
                 </div>
                 <div>
                   <p className="text-lg text-white font-medium">Connecting to {matchedUser}...</p>
-                  <p className="text-sm text-gray-400 mt-1">Establishing peer-to-peer connection</p>
+                  <p className="text-sm text-gray-400 mt-1">Starting video stream...</p>
                 </div>
                 <div className="flex gap-2">
                   <div className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" />
                   <div className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '0.15s' }} />
                   <div className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '0.3s' }} />
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* WebRTC hidden video (audio transport when available) */}
+            <video ref={remoteVideoRef} autoPlay playsInline className="absolute w-0 h-0 opacity-0" />
 
             {/* Local Video PiP — top right, smaller on mobile */}
             <div className="absolute top-3 right-3 w-28 h-20 sm:w-40 sm:h-28 md:w-52 md:h-36 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 z-20">
