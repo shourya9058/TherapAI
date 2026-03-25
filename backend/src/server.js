@@ -27,19 +27,21 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',') 
   : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174'];
 
+const checkOrigin = (origin, callback) => {
+  // Allow same-origin requests (no origin) or trusted local origins
+  if (!origin) return callback(null, true);
+  
+  // Automatically trust .onrender.com and any in allowedOrigins
+  if (allowedOrigins.indexOf(origin) !== -1 || origin.endsWith('.onrender.com')) {
+    return callback(null, true);
+  }
+  
+  const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+  return callback(new Error(msg), false);
+};
+
 app.use(cors({
-  origin: function(origin, callback) {
-    // Allow same-origin requests (no origin) or trusted local origins
-    if (!origin) return callback(null, true);
-    
-    // Automatically trust .onrender.com and any in allowedOrigins
-    if (allowedOrigins.indexOf(origin) !== -1 || origin.endsWith('.onrender.com')) {
-      return callback(null, true);
-    }
-    
-    const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-    return callback(new Error(msg), false);
-  },
+  origin: checkOrigin,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -258,7 +260,7 @@ const startServer = async () => {
     const httpServer = createServer(app);
     const io = new Server(httpServer, {
       cors: {
-        origin: allowedOrigins,
+        origin: checkOrigin,
         methods: ["GET", "POST"],
         credentials: true
       }
