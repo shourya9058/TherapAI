@@ -157,21 +157,12 @@ export default function VideoCallPage() {
       if (audioOn !== undefined) setRemoteAudioOn(audioOn);
     };
 
-    // 📡 Handle local socket disconnection (e.g. internet drop)
-    const handleLocalDisconnect = () => {
-      if (roomId) {
-        console.log('📡 Local socket disconnected');
-        setIsCallEnded(true);
-      }
-    };
-
     socket.on('match-found', handleMatchFound);
     socket.on('call-ended', handleCallEnded);
     socket.on('partner-disconnected', handleCallEnded);
     socket.on('chat-message', handleChatMessage);
     socket.on('remote-video-frame', handleRemoteVideoFrame);
     socket.on('media-status', handleMediaStatus);
-    socket.on('disconnect', handleLocalDisconnect);
 
     return () => {
       socket.off('match-found', handleMatchFound);
@@ -180,7 +171,6 @@ export default function VideoCallPage() {
       socket.off('chat-message', handleChatMessage);
       socket.off('remote-video-frame', handleRemoteVideoFrame);
       socket.off('media-status', handleMediaStatus);
-      socket.off('disconnect', handleLocalDisconnect);
     };
   }, [startCall]);
 
@@ -200,18 +190,19 @@ export default function VideoCallPage() {
     const startCapture = () => {
       interval = setInterval(() => {
         const video = localVideoRef.current;
-        if (!video || !ctx || video.readyState < 2 || video.videoWidth === 0) return;
+        // Higher threshold (readyState >= 3) for mobile stability
+        if (!video || !ctx || video.readyState < 3 || video.videoHeight === 0) return;
         try {
           ctx.save();
           ctx.scale(-1, 1);
           ctx.drawImage(video, -320, 0, 320, 240);
           ctx.restore();
-          const frame = canvas.toDataURL('image/jpeg', 0.6);
+          const frame = canvas.toDataURL('image/jpeg', 0.5); // Lower quality (0.5) for bandwidth safety
           socketService.emit('video-frame', { roomId, frame });
         } catch (_) {
-          // Video not ready yet, skip frame
+          // skip
         }
-      }, 100); // 10fps
+      }, 143); // ~7fps (Sweet spot for mobile stability vs responsiveness)
     };
 
     // 2s delay on mobile for camera init, then capture runs until roomId changes
