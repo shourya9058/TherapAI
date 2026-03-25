@@ -69,7 +69,9 @@ export default function VideoCallPage() {
   const [expertCategory, setExpertCategory] = useState<string | null>(null)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [roomId, setRoomId] = useState<string | null>(null)
-  const [remoteVideoStarted, setRemoteVideoStarted] = useState(false) // true once first frame arrives
+  const [remoteVideoStarted, setRemoteVideoStarted] = useState(false)
+  const [remoteVideoOn, setRemoteVideoOn] = useState(true)    // remote camera status
+  const [remoteAudioOn, setRemoteAudioOn] = useState(true)    // remote mic status
 
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
@@ -80,8 +82,8 @@ export default function VideoCallPage() {
   const { 
     isVideoOn, 
     isAudioOn, 
-    toggleVideo, 
-    toggleAudio, 
+    toggleVideo: rtcToggleVideo, 
+    toggleAudio: rtcToggleAudio, 
     sendMessage,
     initMedia,
     startCall
@@ -150,11 +152,18 @@ export default function VideoCallPage() {
       }
     };
 
+    // 🎥 Receive partner's camera/mic status in real-time
+    const handleMediaStatus = ({ videoOn, audioOn }: { videoOn: boolean; audioOn: boolean }) => {
+      if (videoOn !== undefined) setRemoteVideoOn(videoOn);
+      if (audioOn !== undefined) setRemoteAudioOn(audioOn);
+    };
+
     socket.on('match-found', handleMatchFound);
     socket.on('call-ended', handleCallEnded);
     socket.on('partner-disconnected', handleCallEnded);
     socket.on('chat-message', handleChatMessage);
     socket.on('remote-video-frame', handleRemoteVideoFrame);
+    socket.on('media-status', handleMediaStatus);
 
     return () => {
       socket.off('match-found', handleMatchFound);
@@ -162,6 +171,7 @@ export default function VideoCallPage() {
       socket.off('partner-disconnected', handleCallEnded);
       socket.off('chat-message', handleChatMessage);
       socket.off('remote-video-frame', handleRemoteVideoFrame);
+      socket.off('media-status', handleMediaStatus);
       // ⚠️ NOT clearing videoFrameInterval here — that's handled by the roomId effect
     };
   }, [startCall]);
@@ -206,13 +216,28 @@ export default function VideoCallPage() {
     };
   }, [roomId]); // ⬅️ Only re-runs when room changes, NOT on every render
 
-  // Also reset remoteVideoStarted when call ends
+  // Reset remote status when call ends
   useEffect(() => {
     if (!matchedUser) {
       setRemoteVideoStarted(false);
+      setRemoteVideoOn(true);
+      setRemoteAudioOn(true);
       if (remoteImgRef.current) remoteImgRef.current.style.display = 'none';
     }
   }, [matchedUser]);
+
+  // Wrapped toggles that also emit status to partner
+  const toggleVideo = useCallback(() => {
+    rtcToggleVideo();
+    const newVal = !isVideoOn;
+    if (roomId) socketService.emit('media-status', { roomId, videoOn: newVal, audioOn: isAudioOn });
+  }, [rtcToggleVideo, isVideoOn, isAudioOn, roomId]);
+
+  const toggleAudio = useCallback(() => {
+    rtcToggleAudio();
+    const newVal = !isAudioOn;
+    if (roomId) socketService.emit('media-status', { roomId, videoOn: isVideoOn, audioOn: newVal });
+  }, [rtcToggleAudio, isVideoOn, isAudioOn, roomId]);
 
   // Init media when mode is selected
   useEffect(() => {
@@ -521,8 +546,32 @@ export default function VideoCallPage() {
               </div>
             )}
 
+            {/* Remote camera OFF overlay — shown when partner turns off camera */}
+            {remoteVideoStarted && !remoteVideoOn && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/95 backdrop-blur-sm z-10 gap-4">
+                <div className="w-28 h-28 rounded-full overflow-hidden border-4 border-white/20 shadow-2xl">
+                  <img src="/AvatarImages/PandaAvatar.png" alt={matchedUser ?? ''} className="w-full h-full object-cover" />
+                </div>
+                <div className="text-center">
+                  <p className="text-white font-semibold text-xl">{matchedUser}</p>
+                  <p className="text-gray-400 text-sm mt-1 flex items-center justify-center gap-1.5">
+                    <VideoOff className="w-4 h-4" /> Camera off
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* WebRTC hidden audio channel (P2P audio when available) */}
             <video ref={remoteVideoRef} autoPlay playsInline className="absolute w-0 h-0 opacity-0" />
+
+            {/* Remote mic indicator — bottom left */}
+            <div className="absolute bottom-4 left-4 z-20 flex items-center gap-2 bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10">
+              {remoteAudioOn
+                ? <Mic className="w-3.5 h-3.5 text-emerald-400" />
+                : <MicOff className="w-3.5 h-3.5 text-red-400" />
+              }
+              <span className="text-white text-xs font-medium">{matchedUser}</span>
+            </div>
 
             {/* Local Video PiP — top right, smaller on mobile */}
             <div className="absolute top-3 right-3 w-28 h-20 sm:w-40 sm:h-28 md:w-52 md:h-36 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 z-20">
@@ -533,22 +582,24 @@ export default function VideoCallPage() {
                 muted
                 className="w-full h-full object-cover scale-x-[-1]"
               />
+              {/* Local camera OFF overlay */}
               {!isVideoOn && (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-                  <VideoOff className="w-6 h-6 text-white/30" />
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 gap-2">
+                  <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white/20">
+                    <img src={`/AvatarImages/${user?.avatar || 'PandaAvatar'}.png`} alt="You" className="w-full h-full object-cover"
+                      onError={(e) => { (e.target as HTMLImageElement).src = '/AvatarImages/PandaAvatar.png'; }} />
+                  </div>
+                  <span className="text-white text-[9px] font-semibold">You</span>
                 </div>
               )}
-              <div className="absolute bottom-1 left-1 bg-black/50 text-white text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-widest font-bold">
+              {/* Local labels */}
+              <div className="absolute bottom-1 left-1 bg-black/50 text-white text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-widest font-bold flex items-center gap-1">
+                {isAudioOn ? <Mic className="w-2.5 h-2.5 text-emerald-400" /> : <MicOff className="w-2.5 h-2.5 text-red-400" />}
                 You
               </div>
             </div>
 
-            {/* Partner Name Tag */}
-            <div className="absolute bottom-20 left-4 bg-black/50 backdrop-blur-md text-white px-3 py-1.5 rounded-xl border border-white/10 flex items-center gap-2 z-10">
-              <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-              <span className="text-sm font-medium">{matchedUser}</span>
-            </div>
-          </div>
+          </div> {/* end video area */}
 
           {/* Control Bar — fixed height, no overflow */}
           <div className="flex-shrink-0 z-30 bg-black/60 backdrop-blur-xl border-t border-white/10 px-4 py-3 flex items-center justify-center gap-3 flex-wrap">
