@@ -16,7 +16,6 @@ import {
   Send,
   X,
   ArrowLeft,
-  MoreVertical,
   Smile,
 } from "lucide-react"
 import { useWebRTC } from '../hooks/useWebRTC';
@@ -112,7 +111,7 @@ export default function VideoCallPage() {
     };
   }, []); // ← empty deps: runs ONCE on mount
 
-  // Separate effect for listening to match events — no disconnect here
+  // Separate effect for listening to match + chat events
   useEffect(() => {
     const socket = socketService.connect();
 
@@ -132,15 +131,21 @@ export default function VideoCallPage() {
       setIsMatching(false);
     };
 
+    // ✅ Receive chat messages via socket.io (guaranteed delivery regardless of WebRTC state)
+    const handleChatMessage = (message: string) => {
+      setMessages((prev) => [...prev, { text: message, sender: 'Other', timestamp: Date.now() }]);
+    };
+
     socket.on('match-found', handleMatchFound);
     socket.on('call-ended', handleCallEnded);
     socket.on('partner-disconnected', handleCallEnded);
+    socket.on('chat-message', handleChatMessage);
 
     return () => {
-      // Only remove the listeners, NOT disconnect the socket
       socket.off('match-found', handleMatchFound);
       socket.off('call-ended', handleCallEnded);
       socket.off('partner-disconnected', handleCallEnded);
+      socket.off('chat-message', handleChatMessage);
     };
   }, [startCall]);
 
@@ -152,11 +157,14 @@ export default function VideoCallPage() {
   }, [connectionMode, initMedia]);
 
   const handleSendMessage = (message: string): void => {
-    if (message.trim()) {
-      setMessages((prev) => [...prev, { text: message, sender: "You", timestamp: Date.now() }])
-      sendMessage(message)
-      setChatInput("")
-      setShowEmojiPicker(false)
+    if (message.trim() && roomId) {
+      setMessages((prev) => [...prev, { text: message, sender: 'You', timestamp: Date.now() }]);
+      // Primary: socket.io relay (always works)
+      socketService.emit('chat-message', { roomId, message: message.trim() });
+      // Secondary: WebRTC DataChannel (if P2P is up)
+      sendMessage(message.trim());
+      setChatInput('');
+      setShowEmojiPicker(false);
     }
   }
 

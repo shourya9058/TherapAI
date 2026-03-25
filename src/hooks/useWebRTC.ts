@@ -29,6 +29,26 @@ interface UseWebRTCReturn {
   sendMessage: (message: string) => void
 }
 
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  {
+    urls: "turn:openrelay.metered.ca:80",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+  {
+    urls: "turns:openrelay.metered.ca:443",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+];
+
 export const useWebRTC = ({
   localVideoRef,
   remoteVideoRef,
@@ -44,64 +64,45 @@ export const useWebRTC = ({
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const isInitialized = useRef(false)
   const initInProgress = useRef(false)
   const peerConnection = useRef<RTCPeerConnection | null>(null)
   const dataChannel = useRef<RTCDataChannel | null>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
+  // Buffer for ICE candidates that arrive before remote description is set
+  const pendingCandidates = useRef<RTCIceCandidateInit[]>([])
+  const remoteDescSet = useRef(false)
 
   const createPeerConnection = useCallback(
     (stream: MediaStream): RTCPeerConnection => {
+      // Clean up any existing connection
       if (peerConnection.current) {
         peerConnection.current.close()
         peerConnection.current = null
       }
+      pendingCandidates.current = []
+      remoteDescSet.current = false
 
-      const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" },
-          { urls: "stun:stun2.l.google.com:19302" },
-          // Free TURN servers for production NAT traversal
-          {
-            urls: "turn:openrelay.metered.ca:80",
-            username: "openrelayproject",
-            credential: "openrelayproject"
-          },
-          {
-            urls: "turn:openrelay.metered.ca:443",
-            username: "openrelayproject",
-            credential: "openrelayproject"
-          },
-          {
-            urls: "turn:openrelay.metered.ca:443?transport=tcp",
-            username: "openrelayproject",
-            credential: "openrelayproject"
-          }
-        ],
-        iceCandidatePoolSize: 10,
-      })
-
+      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 })
       peerConnection.current = pc
 
+      // Add local tracks
       stream.getTracks().forEach((track: MediaStreamTrack) => {
-        if (peerConnection.current) {
-          peerConnection.current.addTrack(track, stream)
-        }
+        pc.addTrack(track, stream)
       })
 
+      // When we get remote tracks, display them
       pc.ontrack = (event) => {
-        if (event.streams?.[0] && remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = event.streams[0]
-          setRemoteStream(event.streams[0])
-          
-          // Monitor remote audio track
-          const audioTrack = event.streams[0].getAudioTracks()[0]
+        console.log("🎥 Remote track received:", event.track.kind)
+        if (event.streams?.[0]) {
+          const rs = event.streams[0]
+          setRemoteStream(rs)
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = rs
+            remoteVideoRef.current.play().catch((e) => console.warn("Remote play error:", e))
+          }
+          const audioTrack = rs.getAudioTracks()[0]
           if (audioTrack) {
             setRemoteAudioOn(audioTrack.enabled)
-            
-            // Listen for track changes
-            audioTrack.onended = () => setRemoteAudioOn(false)
             audioTrack.onmute = () => setRemoteAudioOn(false)
             audioTrack.onunmute = () => setRemoteAudioOn(true)
           }
@@ -109,50 +110,23 @@ export const useWebRTC = ({
       }
 
       pc.onconnectionstatechange = () => {
+        console.log("🔗 Connection state:", pc.connectionState)
         onConnectionStateChange(pc.connectionState)
       }
 
-      // Create data channel for chat and metadata
-      dataChannel.current = pc.createDataChannel("chat")
-      dataChannel.current.onopen = () => {
-        console.log("Data channel opened")
-      }
-      dataChannel.current.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          
-          // Handle different message types
-          if (data.type === 'chat') {
-            onMessageReceived(data.message)
-          } else if (data.type === 'username') {
-            onRemoteUserJoined(data.username)
-          } else if (data.type === 'audioStatus') {
-            setRemoteAudioOn(data.enabled)
-          }
-        } catch {
-          // If not JSON, treat as plain text message
-          onMessageReceived(event.data)
-        }
+      pc.onicegatheringstatechange = () => {
+        console.log("🧊 ICE gathering:", pc.iceGatheringState)
       }
 
-      // Handle incoming data channels
+      pc.oniceconnectionstatechange = () => {
+        console.log("🧊 ICE connection:", pc.iceConnectionState)
+      }
+
+      // Handle incoming data channels (answerer side)
       pc.ondatachannel = (event) => {
-        const receiveChannel = event.channel
-        receiveChannel.onmessage = (e) => {
-          try {
-            const data = JSON.parse(e.data)
-            
-            if (data.type === 'chat') {
-              onMessageReceived(data.message)
-            } else if (data.type === 'username') {
-              onRemoteUserJoined(data.username)
-            } else if (data.type === 'audioStatus') {
-              setRemoteAudioOn(data.enabled)
-            }
-          } catch {
-            onMessageReceived(e.data)
-          }
-        }
+        console.log("📡 Data channel received")
+        dataChannel.current = event.channel
+        setupDataChannelListeners(event.channel)
       }
 
       return pc
@@ -160,65 +134,54 @@ export const useWebRTC = ({
     [remoteVideoRef, onConnectionStateChange, onMessageReceived, onRemoteUserJoined]
   )
 
+  const setupDataChannelListeners = (channel: RTCDataChannel) => {
+    channel.onopen = () => console.log("💬 Data channel open")
+    channel.onclose = () => console.log("💬 Data channel closed")
+    channel.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data.type === "chat") onMessageReceived(data.message)
+        else if (data.type === "username") onRemoteUserJoined(data.username)
+        else if (data.type === "audioStatus") setRemoteAudioOn(data.enabled)
+      } catch {
+        onMessageReceived(event.data)
+      }
+    }
+  }
+
   const initMedia = useCallback(async (): Promise<MediaStream | null> => {
-    if (localStreamRef.current) {
-      console.log("Media already initialized")
-      return localStreamRef.current
-    }
+    if (localStreamRef.current) return localStreamRef.current
+    if (initInProgress.current) return null
 
-    if (initInProgress.current) {
-      console.log("Media initialization already in progress")
-      return null
-    }
-
-    console.log("Initializing media...")
+    console.log("🎬 Initializing media...")
     initInProgress.current = true
     setIsLoading(true)
     setError(null)
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          facingMode: "user",
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
+        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       })
 
       localStreamRef.current = stream
       setLocalStream(stream)
-      
+
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream
-        localVideoRef.current.onloadedmetadata = () => {
-          localVideoRef.current?.play().catch((e: Error) => {
-            console.log("Play error:", e)
-          })
-        }
+        localVideoRef.current.play().catch((e) => console.warn("Local play error:", e))
       }
 
-      // Set initial states based on tracks
       const videoTrack = stream.getVideoTracks()[0]
       const audioTrack = stream.getAudioTracks()[0]
-      
-      if (videoTrack) {
-        setIsVideoOn(videoTrack.enabled)
-      }
-      if (audioTrack) {
-        setIsAudioOn(audioTrack.enabled)
-      }
+      if (videoTrack) setIsVideoOn(videoTrack.enabled)
+      if (audioTrack) setIsAudioOn(audioTrack.enabled)
 
-      isInitialized.current = true
       return stream
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to access media devices"
-      setError(errorMessage)
-      console.error("Error initializing media:", errorMessage)
+      const msg = err instanceof Error ? err.message : "Failed to access camera/mic"
+      setError(msg)
+      console.error("❌ Media error:", msg)
       return null
     } finally {
       setIsLoading(false)
@@ -230,160 +193,163 @@ export const useWebRTC = ({
     async (stream: MediaStream, roomId: string, isOfferer: boolean): Promise<void> => {
       const pc = createPeerConnection(stream)
 
-      // Listen for ICE candidates from remote
-      socketService.on('signal', async ({ signal }) => {
-        if (signal.type === 'offer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(signal));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          socketService.emit('signal', { roomId, signal: pc.localDescription });
-        } else if (signal.type === 'answer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(signal));
-        } else if (signal.candidate) {
-          try {
-            await pc.addIceCandidate(new RTCIceCandidate(signal));
-          } catch (e) {
-            console.error("Error adding received ice candidate", e);
-          }
-        }
-      });
+      // Create data channel (offerer side only — answerer gets it via ondatachannel)
+      if (isOfferer) {
+        const dc = pc.createDataChannel("chat")
+        dataChannel.current = dc
+        setupDataChannelListeners(dc)
+      }
 
-      // Send local ICE candidates to remote
+      // ⚠️ CRITICAL: Remove any old signal listeners BEFORE adding a new one
+      socketService.off("signal")
+
+      socketService.on("signal", async ({ signal }: { signal: RTCSessionDescriptionInit | RTCIceCandidateInit }) => {
+        try {
+          const desc = signal as RTCSessionDescriptionInit
+          if (desc.type === "offer") {
+            console.log("📨 Received offer")
+            await pc.setRemoteDescription(new RTCSessionDescription(desc))
+            remoteDescSet.current = true
+            // Flush any buffered ICE candidates
+            for (const c of pendingCandidates.current) {
+              await pc.addIceCandidate(new RTCIceCandidate(c)).catch((e) => console.warn("Buffered ICE error:", e))
+            }
+            pendingCandidates.current = []
+            const answer = await pc.createAnswer()
+            await pc.setLocalDescription(answer)
+            socketService.emit("signal", { roomId, signal: pc.localDescription })
+          } else if (desc.type === "answer") {
+            console.log("📨 Received answer")
+            await pc.setRemoteDescription(new RTCSessionDescription(desc))
+            remoteDescSet.current = true
+            // Flush buffered candidates
+            for (const c of pendingCandidates.current) {
+              await pc.addIceCandidate(new RTCIceCandidate(c)).catch((e) => console.warn("Buffered ICE error:", e))
+            }
+            pendingCandidates.current = []
+          } else {
+            // ICE Candidate
+            const candidate = signal as RTCIceCandidateInit
+            if (candidate.candidate) {
+              if (remoteDescSet.current) {
+                await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((e) =>
+                  console.warn("ICE error:", e)
+                )
+              } else {
+                // Buffer until remote desc is set
+                pendingCandidates.current.push(candidate)
+              }
+            }
+          }
+        } catch (e) {
+          console.error("❌ Signal handling error:", e)
+        }
+      })
+
+      // Send ICE candidates as they're gathered
       pc.onicecandidate = (event) => {
         if (event.candidate) {
-          socketService.emit('signal', { roomId, signal: event.candidate });
+          socketService.emit("signal", { roomId, signal: event.candidate.toJSON() })
         }
-      };
+      }
 
-      try {
-        if (isOfferer) {
+      // Offerer creates and sends the offer
+      if (isOfferer) {
+        try {
+          console.log("📤 Creating offer...")
           const offer = await pc.createOffer()
           await pc.setLocalDescription(offer)
-          socketService.emit('signal', { roomId, signal: pc.localDescription });
+          socketService.emit("signal", { roomId, signal: pc.localDescription })
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Failed to create offer")
+          console.error("❌ Offer error:", err)
         }
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : "Failed to create peer connection"
-        setError(errorMessage)
-        console.error("Error setting up peer connection:", errorMessage)
       }
     },
     [createPeerConnection]
   )
 
-  // Initialization is now controlled by the component
-  const startCall = useCallback(async (roomId: string, isOfferer: boolean) => {
-    try {
-      const stream = await initMedia();
-      if (stream) {
-        await setupPeerConnection(stream, roomId, isOfferer);
+  const startCall = useCallback(
+    async (roomId: string, isOfferer: boolean) => {
+      try {
+        const stream = await initMedia()
+        if (stream) {
+          await setupPeerConnection(stream, roomId, isOfferer)
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to start call")
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start call");
-    }
-  }, [initMedia, setupPeerConnection]);
+    },
+    [initMedia, setupPeerConnection]
+  )
 
-  // Clean up socket listeners on unmount
-  useEffect(() => {
-    return () => {
-      socketService.off('signal');
-    };
-  }, []);
-
+  // Cleanup on unmount
   useEffect(() => {
     return (): void => {
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((track) => {
-          track.stop()
-        })
-        localStreamRef.current = null
-      }
-
-      if (remoteStream) {
-        remoteStream.getTracks().forEach((track) => {
-          track.stop()
-        })
-      }
-
-      if (peerConnection.current) {
-        peerConnection.current.ontrack = null
-        peerConnection.current.onconnectionstatechange = null
-        peerConnection.current.close()
-        peerConnection.current = null
-      }
-
-      if (dataChannel.current) {
-        dataChannel.current.close()
-        dataChannel.current = null
-      }
-
-      isInitialized.current = false
+      socketService.off("signal")
+      localStreamRef.current?.getTracks().forEach((t) => t.stop())
+      localStreamRef.current = null
+      peerConnection.current?.close()
+      peerConnection.current = null
+      dataChannel.current?.close()
+      dataChannel.current = null
       initInProgress.current = false
     }
-  }, [remoteStream])
+  }, [])
 
   const toggleVideo = useCallback((): void => {
     if (localStreamRef.current) {
-      const videoTrack = localStreamRef.current.getVideoTracks()[0]
-      if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled
-        setIsVideoOn(videoTrack.enabled)
+      const track = localStreamRef.current.getVideoTracks()[0]
+      if (track) {
+        track.enabled = !track.enabled
+        setIsVideoOn(track.enabled)
       }
     }
   }, [])
 
   const toggleAudio = useCallback((): void => {
     if (localStreamRef.current) {
-      const audioTrack = localStreamRef.current.getAudioTracks()[0]
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled
-        setIsAudioOn(audioTrack.enabled)
-        
-        // Notify remote peer about audio status change
-        if (dataChannel.current && dataChannel.current.readyState === "open") {
-          dataChannel.current.send(JSON.stringify({
-            type: 'audioStatus',
-            enabled: !audioTrack.enabled
-          }))
+      const track = localStreamRef.current.getAudioTracks()[0]
+      if (track) {
+        track.enabled = !track.enabled
+        setIsAudioOn(track.enabled)
+        if (dataChannel.current?.readyState === "open") {
+          dataChannel.current.send(JSON.stringify({ type: "audioStatus", enabled: track.enabled }))
         }
       }
     }
   }, [])
 
-  const retryConnection = useCallback(async (roomId: string, isOfferer: boolean): Promise<boolean> => {
-    try {
-      setIsLoading(true)
-      setError(null)
-      
-      isInitialized.current = false
-      initInProgress.current = false
-      
-      const stream = await initMedia()
-      if (stream) {
-        await setupPeerConnection(stream, roomId, isOfferer)
-        return true
-      }
-      return false
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to retry connection")
-      return false
-    } finally {
-      setIsLoading(false)
-    }
-  }, [initMedia, setupPeerConnection])
-
-  const sendMessage = useCallback(
-    (message: string): void => {
-      if (dataChannel.current && dataChannel.current.readyState === "open") {
-        dataChannel.current.send(JSON.stringify({
-          type: 'chat',
-          message: message
-        }))
-      } else {
-        console.warn("Data channel not ready for sending messages")
+  const retryConnection = useCallback(
+    async (roomId: string, isOfferer: boolean): Promise<boolean> => {
+      try {
+        setIsLoading(true)
+        setError(null)
+        initInProgress.current = false
+        localStreamRef.current = null
+        const stream = await initMedia()
+        if (stream) {
+          await setupPeerConnection(stream, roomId, isOfferer)
+          return true
+        }
+        return false
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to retry")
+        return false
+      } finally {
+        setIsLoading(false)
       }
     },
-    []
+    [initMedia, setupPeerConnection]
   )
+
+  const sendMessage = useCallback((message: string): void => {
+    if (dataChannel.current?.readyState === "open") {
+      dataChannel.current.send(JSON.stringify({ type: "chat", message }))
+    } else {
+      console.warn("⚠️ DataChannel not open, message not sent via P2P")
+    }
+  }, [])
 
   return {
     localStream,
