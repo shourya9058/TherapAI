@@ -126,15 +126,6 @@ const connectDB = async () => {
   }
 };
 
-// Basic routes
-app.get('/', (req, res) => {
-  res.json({ 
-    status: 'success',
-    message: 'TherapAI Backend is running',
-    timestamp: new Date().toISOString(),
-    node_env: process.env.NODE_ENV || 'development'
-  });
-});
 
 app.get('/health', (req, res) => {
   const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
