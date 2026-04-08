@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { User, AnonymousUser, ProfessionalUser } from '../models/user.model.js';
 import { sendVerificationEmail } from '../utils/emailService.js';
+import crypto from 'crypto';
 
 // Generate JWT Token
 const generateToken = (user) => {
@@ -360,6 +361,77 @@ export const updateAvatar = async (req, res) => {
       success: false,
       message: 'Server error updating avatar',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// @desc    Google OAuth login/register
+// @route   POST /api/auth/google
+// @access  Public
+export const googleAuth = async (req, res) => {
+  try {
+    const { email, name, googleId, avatar } = req.body;
+
+    if (!email || !googleId) {
+      return res.status(400).json({ success: false, message: 'Missing Google user data' });
+    }
+
+    // Check if user already exists
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      // Create a new anonymous user for Google sign-in
+      const randomPassword = crypto.randomBytes(32).toString('hex');
+      const username = `user_${Math.random().toString(36).substring(2, 10)}`;
+      const displayName = name || `Anonymous${Math.floor(1000 + Math.random() * 9000)}`;
+
+      user = new AnonymousUser({
+        email,
+        password: randomPassword,
+        username,
+        displayName,
+        isVerified: true,
+        avatar: 'PandaAvatar.png',
+        googleId,
+      });
+
+      await user.save();
+    }
+
+    // Update last login
+    user.lastLogin = Date.now();
+    await user.save();
+
+    // Generate token
+    const token = generateToken(user);
+    const userData = formatUserResponse(user);
+
+    res.json({
+      success: true,
+      token,
+      user: userData,
+      message: 'Signed in with Google successfully',
+    });
+  } catch (error) {
+    console.error('Google auth error:', error);
+    if (error.code === 11000) {
+      // Duplicate key — user exists, let them login
+      try {
+        const user = await User.findOne({ email: req.body.email });
+        if (user) {
+          user.lastLogin = Date.now();
+          await user.save();
+          const token = generateToken(user);
+          return res.json({ success: true, token, user: formatUserResponse(user) });
+        }
+      } catch (e) {
+        // fall through
+      }
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Google authentication failed',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };

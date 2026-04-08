@@ -15,8 +15,9 @@ const userSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: true,
-    minlength: [8, 'Password must be at least 8 characters long']
+    required: false,
+    minlength: [8, 'Password must be at least 8 characters long'],
+    select: false
   },
   username: {
     type: String,
@@ -42,10 +43,17 @@ const userSchema = new mongoose.Schema({
     type: Date
   },
 
-  // ✅ YouWho Avatar Support (persistent)
+  // ✅ TherapAI Avatar Support (persistent)
   avatar: {
     type: String,
     default: "PandaAvatar.png"   // default avatar
+  },
+
+  // ✅ Google OAuth support
+  googleId: {
+    type: String,
+    sparse: true,
+    default: null
   },
 
   status: {
@@ -66,7 +74,7 @@ const userSchema = new mongoose.Schema({
 
 // Pre-save hook to hash password
 userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
+  if (!this.isModified('password') || !this.password) return next();
   
   try {
     const salt = await bcrypt.genSalt(10);
@@ -79,6 +87,7 @@ userSchema.pre('save', async function(next) {
 
 // Method to compare passwords
 userSchema.methods.comparePassword = async function(candidatePassword) {
+  if (!this.password) return false;
   return await bcrypt.compare(candidatePassword, this.password);
 };
 

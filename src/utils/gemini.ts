@@ -1,196 +1,143 @@
-// Using the latest Gemini API with improved prompting
 // src/utils/gemini.ts
-const API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
-const MODEL_NAME = 'gemini-2.0-flash-exp';
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent`;
+import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 
-const systemPrompt = `You are Lucille, a warm and compassionate AI mental health companion. Your responses should be:
+const API_KEY = 'AIzaSyAB2XG-dRcBiEnnAFZ1i39JJgbzy4vQC4s';
+const genAI = new GoogleGenerativeAI(API_KEY);
 
-CRITICAL RULES:
-1. CONCISE: Keep responses 3-5 sentences (50-100 words) unless the user specifically asks for detailed advice
-2. MULTILINGUAL: Automatically detect and respond in the user's language (English, Hindi, Hinglish, Spanish, Punjabi, Marathi, etc.)
-3. NATURAL: Write like a caring friend having a genuine conversation
-4. ACTIONABLE: When appropriate, give one simple, practical suggestion
+// ─── Therapist persona ────────────────────────────────────────────────────────
+const SYSTEM_PROMPT = `You are Dr. Lucille, a warm and deeply empathetic AI therapist companion.
+You are trained in CBT, Mindfulness-Based Therapy, and Person-Centered Therapy.
 
-YOUR APPROACH:
-✓ Validate emotions briefly ("That sounds really tough" / "मैं समझ सकती हूं")
-✓ Offer hope without dismissing pain
-✓ Ask thoughtful questions to help them reflect
-✓ Give practical, bite-sized advice
-✓ Be warm but not overwhelming
+CORE RULES:
+- Validate feelings FIRST before any advice
+- Keep replies to 2-4 sentences. Short, warm, human.
+- Ask only ONE gentle open-ended question per reply
+- Never use bullet lists or numbered points unless asked
+- Never say "As an AI" — you ARE their companion
+- Never use hollow phrases like "everything will be okay"
 
-LANGUAGE EXAMPLES:
-- English: "I hear you. That must be really hard. Have you tried taking a few deep breaths when you feel overwhelmed?"
-- Hindi: "मैं समझती हूं। यह बहुत मुश्किल होगा। क्या आपने कभी गहरी सांस लेने की कोशिश की है?"
-- Hinglish: "I understand yaar. Bahut tough situation hai. Have you tried kuch simple breathing exercises?"
-- Spanish: "Te entiendo. Debe ser muy difícil. ¿Has intentado respirar profundamente cuando te sientes así?"
-- Punjabi: "ਮੈਂ ਸਮਝਦੀ ਹਾਂ। ਇਹ ਬਹੁਤ ਔਖਾ ਹੋਵੇਗਾ। ਕੀ ਤੁਸੀਂ ਡੂੰਘੀਆਂ ਸਾਹਾਂ ਲੈਣ ਦੀ ਕੋਸ਼ਿਸ਼ ਕੀਤੀ ਹੈ?"
-- Marathi: "मी समजते. हे खूप कठीण असेल. तुम्ही खोल श्वास घेण्याचा प्रयत्न केला आहे का?"
+LANGUAGE MATCHING (mandatory): Always reply in the exact same language the user writes in.
+- English → conversational English
+- Hindi/Devanagari → pure Hindi
+- Hinglish (yaar, bas, hoon, kya, nahi, bahut) → casual Hinglish
+- Punjabi → Punjabi | Marathi → Marathi | Spanish → Spanish
 
-AVOID:
-✗ Long paragraphs or essays
-✗ Multiple pieces of advice at once
-✗ Overly formal or clinical language
-✗ Toxic positivity or dismissing feelings
-✗ Always responding in English - match their language!
+HINGLISH example:
+User: "Yaar bahut thak gaya hoon life se"
+You: "Yaar, ye thakaan sirf bahar ki nahi hoti — andar tak jaati hai. Kya chal raha hai tere saath?"
 
-SAFETY:
-If someone expresses:
-- Self-harm thoughts: Immediately provide crisis resources (988 Lifeline, Crisis Text Line: HOME to 741741)
-- Emergency: Urge them to call emergency services or reach out to someone nearby
-- Severe distress: Gently suggest professional help while staying supportive
+TONE: Be the friend who has a therapy degree. Warm. Real. Present.
+If someone mentions wanting to hurt themselves, respond calmly and share: iCall India 9152987821.`;
 
-Remember: You're here to provide comfort and gentle guidance, not to replace professional therapy. Keep it brief, warm, and in their language.`;
-
-interface Message {
+// ─── Types ────────────────────────────────────────────────────────────────────
+export interface Message {
   role: 'user' | 'assistant';
   content: string;
 }
 
-function formatMessages(messages: Message[]) {
-  return messages.map(msg => ({
-    role: msg.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: msg.content }],
-  }));
-}
-
+// ─── Language detection ───────────────────────────────────────────────────────
 function detectLanguage(text: string): string {
-  const hindiPattern = /[\u0900-\u097F]/;
-  const punjabiPattern = /[\u0A00-\u0A7F]/;
-  const spanishWords = /\b(hola|gracias|por favor|buenos|dias|como|estas)\b/i;
-  
-  if (hindiPattern.test(text)) {
-    // Could be Hindi or Marathi (both use Devanagari)
-    if (text.includes('आहे') || text.includes('असा') || text.includes('काय')) {
-      return 'Marathi';
-    }
+  if (/[\u0900-\u097F]/.test(text)) {
+    if (/आहे|असा|मला|तुम्ही/.test(text)) return 'Marathi';
     return 'Hindi';
   }
-  
-  if (punjabiPattern.test(text)) {
-    return 'Punjabi';
-  }
-  
-  if (spanishWords.test(text)) {
-    return 'Spanish';
-  }
-  
-  // Check for Hinglish (mix of English and Hindi words)
-  const hinglishWords = /\b(hai|nahi|kya|acha|theek|yaar|bhai|dost|kar|ho|hoon)\b/i;
-  if (hinglishWords.test(text)) {
-    return 'Hinglish';
-  }
-  
+  if (/[\u0A00-\u0A7F]/.test(text)) return 'Punjabi';
+  if (/\b(hola|gracias|como|estas|por favor)\b/i.test(text)) return 'Spanish';
+  if (/\b(yaar|bhai|hoon|nahi|kya|acha|theek|bahut|bas|mujhe|tere|abhi)\b/i.test(text)) return 'Hinglish';
   return 'English';
 }
 
-export async function generateResponse(messages: Message[]): Promise<string> {
-  try {
-    // Detect language from the last user message
-    const lastUserMessage = messages.filter(m => m.role === 'user').pop();
-    const detectedLanguage = lastUserMessage ? detectLanguage(lastUserMessage.content) : 'English';
-    
-    // Build conversation history
-    const history = [
-      {
-        role: 'user' as const,
-        parts: [{ text: systemPrompt }],
-      },
-      {
-        role: 'model' as const,
-        parts: [{ text: "I'm here for you. What's on your mind?" }],
-      },
-      ...formatMessages(messages.slice(0, -1))
-    ];
-
-    const userMessage = messages[messages.length - 1].content;
-    
-    // Add language hint to the current message if not English
-    const messageWithHint = detectedLanguage !== 'English' 
-      ? `[Respond in ${detectedLanguage}] ${userMessage}`
-      : userMessage;
-
-    const response = await fetch(`${API_URL}?key=${API_KEY}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [
-          ...history,
-          {
-            role: 'user',
-            parts: [{ text: messageWithHint }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          topP: 0.9,
-          topK: 40,
-          maxOutputTokens: 300, // Reduced to keep responses concise
-          candidateCount: 1,
-        },
-        safetySettings: [
-          {
-            category: 'HARM_CATEGORY_HARASSMENT',
-            threshold: 'BLOCK_ONLY_HIGH',
-          },
-          {
-            category: 'HARM_CATEGORY_HATE_SPEECH',
-            threshold: 'BLOCK_ONLY_HIGH',
-          },
-          {
-            category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
-            threshold: 'BLOCK_MEDIUM_AND_ABOVE',
-          },
-          {
-            category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-            threshold: 'BLOCK_ONLY_HIGH',
-          },
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      console.error('API Error:', error);
-      throw new Error(error.error?.message || 'Failed to generate response');
-    }
-
-    const data = await response.json();
-    const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    
-    if (!generatedText) {
-      throw new Error('No response generated');
-    }
-    
-    // Ensure response isn't too long (fallback safety check)
-    if (generatedText.length > 500) {
-      const sentences = generatedText.split(/[.!?]+/).filter((s: string) => s.trim());
-      return sentences.slice(0, 3).join('. ') + '.';
-    }
-    
-    return generatedText;
-    
-  } catch (error) {
-    console.error('Error in generateResponse:', error);
-    
-    // Return language-appropriate error message
-    const lastUserMessage = messages.filter(m => m.role === 'user').pop();
-    const detectedLanguage = lastUserMessage ? detectLanguage(lastUserMessage.content) : 'English';
-    
-    const errorMessages: Record<string, string> = {
-      'English': "I'm having trouble connecting right now. Could you try again in a moment?",
-      'Hindi': "मुझे अभी कनेक्शन में समस्या हो रही है। क्या आप एक पल में फिर से कोशिश कर सकते हैं?",
-      'Hinglish': "Mujhe abhi connection issue ho raha hai. Kya aap ek minute baad try kar sakte ho?",
-      'Spanish': "Tengo problemas de conexión ahora. ¿Podrías intentarlo de nuevo en un momento?",
-      'Punjabi': "ਮੈਨੂੰ ਹੁਣ ਕਨੈਕਸ਼ਨ ਵਿੱਚ ਸਮੱਸਿਆ ਹੋ ਰਹੀ ਹੈ। ਕੀ ਤੁਸੀਂ ਇੱਕ ਪਲ ਵਿੱਚ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰ ਸਕਦੇ ਹੋ?",
-      'Marathi': "मला आता कनेक्शनमध्ये समस्या येत आहे. तुम्ही थोड्या वेळाने पुन्हा प्रयत्न करू शकता का?"
-    };
-    
-    return errorMessages[detectedLanguage] || errorMessages['English'];
-  }
+export function getErrorMessage(userText: string): string {
+  const lang = detectLanguage(userText);
+  const msgs: Record<string, string> = {
+    English:  "I'm having a little trouble connecting right now — please try again in a moment.",
+    Hindi:    "मुझे अभी कनेक्शन में समस्या हो रही है। एक पल बाद फिर से कोशिश करें।",
+    Hinglish: "Yaar, abhi connection issue hai. Ek second baad dobara try karo.",
+    Spanish:  "Tengo un problema de conexión — inténtalo de nuevo en un momento.",
+    Punjabi:  "ਮੈਨੂੰ ਕਨੈਕਸ਼ਨ ਸਮੱਸਿਆ ਹੈ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।",
+    Marathi:  "मला कनेक्शन समस्या आहे. पुन्हा प्रयत्न करा.",
+  };
+  return msgs[lang] ?? msgs['English'];
 }
 
-// Log the model being used
-console.log('Using Gemini model:', MODEL_NAME);
+// ─── Main export ──────────────────────────────────────────────────────────────
+export async function generateResponse(messages: Message[]): Promise<string> {
+  if (!messages.length) throw new Error('No messages provided');
+
+
+
+  const safetySettings = [
+    { category: HarmCategory.HARM_CATEGORY_HARASSMENT,        threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,       threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,  threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,  threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+  ];
+
+  // Previous conversation turns (all messages except the last one)
+  const rawHistory = messages.slice(0, -1);
+  const firstUserIndex = rawHistory.findIndex(m => m.role === 'user');
+  const validHistory = firstUserIndex >= 0 ? rawHistory.slice(firstUserIndex) : [];
+
+  const history = validHistory.map(m => ({
+    role: m.role === 'assistant' ? ('model' as const) : ('user' as const),
+    parts: [{ text: m.content }],
+  }));
+
+  // Current user message — add language hint if non-English
+  const lastMsg = messages[messages.length - 1];
+  const lang = detectLanguage(lastMsg.content);
+  const currentText = lang !== 'English'
+    ? `[Please respond in ${lang}] ${lastMsg.content}`
+    : lastMsg.content;
+
+  const FALLBACK_MODELS = [
+    'gemini-2.5-flash',
+    'gemini-flash-latest',
+    'gemini-2.0-flash-lite',
+    'gemini-pro-latest'
+  ];
+
+  let lastError: any;
+
+  for (const modelName of FALLBACK_MODELS) {
+    try {
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        systemInstruction: SYSTEM_PROMPT,
+      });
+
+      const chat = model.startChat({
+        history,
+        generationConfig: {
+          temperature: 0.8,
+          topP: 0.9,
+          maxOutputTokens: 512,
+        },
+        safetySettings,
+      });
+
+      const result = await chat.sendMessage(currentText);
+      const text = result.response.text();
+
+      if (!text?.trim()) {
+        throw new Error('Empty response from model');
+      }
+
+      // If successful, return the text immediately
+      if (text.length > 900) {
+        return text.split(/(?<=[.!?।])\s+/).filter(Boolean).slice(0, 4).join(' ');
+      }
+
+      return text.trim();
+
+    } catch (err: any) {
+      console.warn(`[Gemini] ${modelName} failed:`, err?.message || err);
+      lastError = err;
+      // If it's a model-level failure (429/503/404), it will loop and try the next model.
+    }
+  }
+
+  // If ALL fallback models failed
+  console.error('[Gemini] All fallback models failed. Last error:', lastError?.message || lastError);
+  throw lastError;
+}

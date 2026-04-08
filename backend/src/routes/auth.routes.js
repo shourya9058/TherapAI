@@ -7,7 +7,8 @@ import {
   verifyEmail, 
   forgotPassword, 
   resetPassword,
-  updateAvatar
+  updateAvatar,
+  googleAuth
 } from '../controllers/auth.controller.js';
 import { protect } from '../middleware/auth.middleware.js';
 
@@ -95,5 +96,10 @@ router.post(
 // @desc    Update user avatar
 // @access  Private
 router.patch('/avatar', protect, updateAvatar);
+
+// @route   POST /api/auth/google
+// @desc    Google OAuth login/register
+// @access  Public
+router.post('/google', googleAuth);
 
 export default router;

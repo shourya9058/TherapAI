@@ -195,7 +195,7 @@ const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
           }}
         />
         <motion.img
-          src="/AvatarImages/YouWhoLogo.png"
+          src="/AvatarImages/TherapAILogo.png"
           alt=""
           className="absolute inset-1 w-[calc(100%-0.5rem)] h-[calc(100%-0.5rem)] object-contain"
           animate={{

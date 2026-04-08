@@ -29,7 +29,7 @@ export default function Navigation() {
               <MessageCircle className="w-6 h-6 text-white" strokeWidth={2.5} />
             </div>
             <span className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-              YouWho
+              TherapAI
             </span>
           </Link>
 

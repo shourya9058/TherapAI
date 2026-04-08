@@ -10,7 +10,7 @@ export default function Footer() {
               <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center">
                 <MessageCircle className="w-6 h-6 text-white" strokeWidth={2.5} />
               </div>
-              <span className="text-2xl font-bold text-white">YouWho</span>
+              <span className="text-2xl font-bold text-white">TherapAI</span>
             </div>
             <p className="text-gray-400 leading-relaxed mb-4 max-w-md">
               Because sometimes strangers listen better. Connect instantly with someone who'll listen, anonymously.
@@ -45,7 +45,7 @@ export default function Footer() {
 
         <div className="pt-8 border-t border-gray-800 flex flex-col md:flex-row items-center justify-between space-y-4 md:space-y-0">
           <p className="text-sm text-gray-500">
-            © 2025 YouWho. All rights reserved.
+            © 2025 TherapAI. All rights reserved.
           </p>
           <div className="flex items-center space-x-6 text-sm text-gray-500">
             <a href="#" className="hover:text-emerald-400 transition-colors">Crisis Resources</a>

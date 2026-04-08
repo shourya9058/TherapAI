@@ -220,9 +220,9 @@ export default function CommunityPage() {
 
   const createWelcomePost = (): Post => ({
     _id: "welcome-post",
-    author: { _id: "youwho-team", username: "YouWho Team" },
+    author: { _id: "therapai-team", username: "TherapAI Team" },
     content:
-      "Welcome to the YouWho Community! 🌟\n\nThis is a safe space where you can:\n• Share your thoughts and experiences\n• Support others on their wellness journey\n• Ask questions and get advice\n• Connect with like-minded individuals\n\nRemember: Be kind, be respectful, and be yourself. We're all here to grow together.",
+      "Welcome to the TherapAI Community! 🌟\n\nThis is a safe space where you can:\n• Share your thoughts and experiences\n• Support others on their wellness journey\n• Ask questions and get advice\n• Connect with like-minded individuals\n\nRemember: Be kind, be respectful, and be yourself. We're all here to grow together.",
     category: "Support",
     likes: [],
     reactions: { like: 0, love: 0, support: 0, celebrate: 0, insightful: 0 },
@@ -711,7 +711,7 @@ export default function CommunityPage() {
             <div className="space-y-4">
               {filteredPosts.map((post) => {
                 const totalReactions = getTotalReactions(post.reactions)
-                const isYouWhoTeam = post.author._id === "youwho-team"
+                const isTherapAITeam = post.author._id === "therapai-team";
 
                 return (
                   <motion.div
@@ -719,7 +719,7 @@ export default function CommunityPage() {
                     variants={fadeIn}
                     initial="hidden"
                     animate="visible"
-                    className={`bg-white rounded-2xl shadow-md border overflow-hidden hover:shadow-lg transition-all ${isYouWhoTeam
+                    className={`bg-white rounded-2xl shadow-md border overflow-hidden hover:shadow-lg transition-all ${isTherapAITeam
                       ? "border-emerald-200 bg-gradient-to-br from-emerald-50/50 to-white"
                       : "border-gray-100"
                       }`}
@@ -728,7 +728,7 @@ export default function CommunityPage() {
                       {/* Post Header */}
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex items-start space-x-3 flex-1">
-                          {isYouWhoTeam ? (
+                          {isTherapAITeam ? (
                             <div
                               className={`w-11 h-11 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0 bg-gradient-to-br from-emerald-600 to-teal-700`}
                             >
@@ -750,7 +750,7 @@ export default function CommunityPage() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center space-x-2">
                               <p className="font-bold text-gray-900">{post.author?.username || "Anonymous"}</p>
-                              {isYouWhoTeam && (
+                              {isTherapAITeam && (
                                 <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium flex items-center">
                                   <Sparkles className="w-3 h-3 mr-1" />
                                   Team
@@ -774,7 +774,7 @@ export default function CommunityPage() {
                           </div>
                         </div>
 
-                        {!isYouWhoTeam && (
+                        {!isTherapAITeam && (
                           <div className="relative">
                             <button
                               onClick={() =>
@@ -937,7 +937,7 @@ export default function CommunityPage() {
                         </div>
 
                         {/* Save Button */}
-                        {!isYouWhoTeam && (
+                        {!isTherapAITeam && (
                           <button
                             onClick={() => handleSavePost(post._id)}
                             className={`p-2 rounded-xl transition-colors ${savedPosts[post._id] ? "text-emerald-600 bg-emerald-50" : "text-gray-600 hover:bg-gray-50"
